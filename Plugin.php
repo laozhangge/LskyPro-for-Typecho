@@ -21,6 +21,8 @@ class Plugin implements PluginInterface
     public static function activate()
     {
         \Typecho\Plugin::factory('Widget_Upload')->uploadHandle = __CLASS__ . '::uploadHandle';
+        \Typecho\Plugin::factory('admin/write-post.php')->bottom = __CLASS__ . '::injectScript';
+        \Typecho\Plugin::factory('admin/write-page.php')->bottom = __CLASS__ . '::injectScript';
     }
 
     public static function deactivate()
@@ -122,6 +124,72 @@ HTML;
     {
     }
 
+    /**
+     * 注入编辑器脚本 - 修正Typecho拼接的URL
+     */
+    public static function injectScript()
+    {
+        $opts = Options::alloc()->plugin('LskyPro');
+        $api = rtrim($opts->api ?? '', '/');
+        if (empty($api)) return;
+        $siteUrl = rtrim(Options::alloc()->siteUrl, '/');
+        $apiHost = parse_url($api, PHP_URL_HOST);
+
+        echo '<script>
+        (function(){
+            var siteUrl="' . $siteUrl . '";
+            var apiHost="' . $apiHost . '";
+            // 修正Typecho拼接的URL：https://zhangbo.net/img.laozhang.org/... → https://img.laozhang.org/...
+            function fixUrl(url){
+                if(!url)return url;
+                // 检测站点URL+API域名的拼接模式
+                var prefix=siteUrl+"/"+apiHost;
+                if(url.indexOf(prefix)===0){
+                    return "https://"+url.substr(siteUrl.length+1);
+                }
+                // 检测站点URL+https:// 的拼接模式
+                var prefix2=siteUrl+"/https://";
+                if(url.indexOf(prefix2)===0){
+                    return url.substr(siteUrl.length+1);
+                }
+                var prefix3=siteUrl+"/http://";
+                if(url.indexOf(prefix3)===0){
+                    return url.substr(siteUrl.length+1);
+                }
+                return url;
+            }
+            // 拦截textarea内容变化，修正图片URL
+            function watchTextarea(){
+                var ta=document.querySelector("textarea");
+                if(!ta)return;
+                var lastVal=ta.value;
+                setInterval(function(){
+                    if(ta.value!==lastVal){
+                        var fixed=ta.value.replace(/(!\[[^\]]*\]\()([^)]+)(\))/g,function(m,pre,url,post){
+                            return pre+fixUrl(url)+post;
+                        });
+                        // 也处理HTML img标签
+                        fixed=fixed.replace(/(<img\s+[^>]*src=["\x27])([^"\x27]+)(["\x27])/g,function(m,pre,url,post){
+                            return pre+fixUrl(url)+post;
+                        });
+                        if(fixed!==ta.value){
+                            var pos=ta.selectionStart;
+                            ta.value=fixed;
+                            ta.selectionStart=ta.selectionEnd=pos;
+                        }
+                        lastVal=ta.value;
+                    }
+                },500);
+            }
+            if(document.readyState==="loading"){
+                document.addEventListener("DOMContentLoaded",watchTextarea);
+            }else{
+                watchTextarea();
+            }
+        })();
+        </script>';
+    }
+
     public static function uploadHandle($file)
     {
         if (empty($file['name'])) {
@@ -171,6 +239,7 @@ HTML;
 
         $params = ['file' => new \CURLFile($tmpFile, $mime, $file['name'])];
         $params['permission'] = intval($options->permission ?? 1);
+        $params['is_public'] = intval($options->permission ?? 1);
 
         $strategyId = $options->strategy_id ?? '';
         if (!empty($strategyId)) {
