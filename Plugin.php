@@ -49,8 +49,8 @@ class Plugin implements PluginInterface
         $format = new Text('format', NULL, 'markdown', '', '');
         $form->addInput($format);
 
-        // 读取已保存值
-        $opts = Options::alloc()->plugin('LskyPro');
+        // 读取已保存值（首次启用时opts可能为null）
+        try { $opts = Options::alloc()->plugin('LskyPro'); } catch (\Exception $e) { $opts = null; }
         $vApi   = htmlspecialchars($opts->api ?? '', ENT_QUOTES);
         $vToken = htmlspecialchars($opts->token ?? '', ENT_QUOTES);
         $vVer   = htmlspecialchars($opts->api_version ?? 'v2', ENT_QUOTES);
@@ -58,7 +58,11 @@ class Plugin implements PluginInterface
         $vStr   = htmlspecialchars($opts->strategy_id ?? '', ENT_QUOTES);
         $vAlb   = htmlspecialchars($opts->album_id ?? '', ENT_QUOTES);
         $vSize  = htmlspecialchars($opts->max_size ?? '10', ENT_QUOTES);
-        $vFmt   = htmlspecialchars($opts->format ?? 'markdown', ENT_QUOTES);
+        $vFmt   = $opts->format ?? 'markdown';
+        $vFmtMd  = ($vFmt === 'markdown') ? 'checked' : '';
+        $vFmtUrl = ($vFmt === 'url') ? 'checked' : '';
+        $vFmtHtm = ($vFmt === 'html') ? 'checked' : '';
+        $vFmtBbc = ($vFmt === 'bbcode') ? 'checked' : '';
 
         echo <<<HTML
 <style>
@@ -196,10 +200,10 @@ class Plugin implements PluginInterface
 </div>
 <div class="lsky-card-body">
 <div class="lsky-fmt-grid">
-<div class="lsky-fmt-item"><input type="radio" name="config[format]" value="markdown" id="fmt-md" {$vFmt_md}><label for="fmt-md"><span class="lsky-fmt-badge lsky-fmt-badge-md">MD</span><span class="lsky-fmt-sub">Markdown 格式</span></label></div>
-<div class="lsky-fmt-item"><input type="radio" name="config[format]" value="url" id="fmt-url" {$vFmt_url}><label for="fmt-url"><span class="lsky-fmt-badge lsky-fmt-badge-url">URL</span><span class="lsky-fmt-sub">纯链接地址</span></label></div>
-<div class="lsky-fmt-item"><input type="radio" name="config[format]" value="html" id="fmt-htm" {$vFmt_htm}><label for="fmt-htm"><span class="lsky-fmt-badge lsky-fmt-badge-htm">HTML</span><span class="lsky-fmt-sub">HTML img 标签</span></label></div>
-<div class="lsky-fmt-item"><input type="radio" name="config[format]" value="bbcode" id="fmt-bbc" {$vFmt_bbc}><label for="fmt-bbc"><span class="lsky-fmt-badge lsky-fmt-badge-bbc">BB</span><span class="lsky-fmt-sub">BBCode 格式</span></label></div>
+<div class="lsky-fmt-item"><input type="radio" name="config[format]" value="markdown" id="fmt-md" {$vFmtMd}><label for="fmt-md"><span class="lsky-fmt-badge lsky-fmt-badge-md">MD</span><span class="lsky-fmt-sub">Markdown 格式</span></label></div>
+<div class="lsky-fmt-item"><input type="radio" name="config[format]" value="url" id="fmt-url" {$vFmtUrl}><label for="fmt-url"><span class="lsky-fmt-badge lsky-fmt-badge-url">URL</span><span class="lsky-fmt-sub">纯链接地址</span></label></div>
+<div class="lsky-fmt-item"><input type="radio" name="config[format]" value="html" id="fmt-htm" {$vFmtHtm}><label for="fmt-htm"><span class="lsky-fmt-badge lsky-fmt-badge-htm">HTML</span><span class="lsky-fmt-sub">HTML img 标签</span></label></div>
+<div class="lsky-fmt-item"><input type="radio" name="config[format]" value="bbcode" id="fmt-bbc" {$vFmtBbc}><label for="fmt-bbc"><span class="lsky-fmt-badge lsky-fmt-badge-bbc">BB</span><span class="lsky-fmt-sub">BBCode 格式</span></label></div>
 </div>
 <div class="lsky-prev-box">
 <div class="lsky-prev-head"><div class="lsky-prev-dots"><span class="d1"></span><span class="d2"></span><span class="d3"></span></div><span class="lsky-prev-label">PREVIEW</span></div>
