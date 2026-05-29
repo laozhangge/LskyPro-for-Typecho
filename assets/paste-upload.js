@@ -1,6 +1,7 @@
 /**
  * LskyPro 粘贴图片自动上传
  * 在 Typecho 编辑器中粘贴图片时自动上传到兰空图床
+ * 参考: yeyinghai/Lsky-Upload-pro
  */
 (function () {
     'use strict';
@@ -8,8 +9,6 @@
     if (window.__lskypro_paste_loaded) return;
     window.__lskypro_paste_loaded = true;
 
-    var FORMAT = window.__lskypro_format || 'markdown';
-    var AJAX_URL = window.__lskypro_ajax || '';
     var MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
     function getEditor() {
@@ -54,7 +53,7 @@
             editor.dispatchEvent(new Event('input', { bubbles: true }));
             return;
         }
-        // ContentEditable
+        // ContentEditable (CodeMirror)
         editor.focus();
         var range = null;
         if (savedRange) {
@@ -88,13 +87,15 @@
     function uploadAndInsert(file, editor, savedRange) {
         var cursorPos = editor.tagName === 'TEXTAREA' ? editor.selectionStart : 0;
 
+        // 上传到当前页面 + ?action=lskypro_paste_upload（在 Typecho 框架内处理，可读配置）
+        var uploadUrl = window.location.href.split('?')[0] + '?action=lskypro_paste_upload';
+
         var fd = new FormData();
-        fd.append('__lskypro_action', 'paste_upload');
         fd.append('file', file);
-        fd.append('format', FORMAT);
 
         var xhr = new XMLHttpRequest();
-        xhr.open('POST', AJAX_URL, true);
+        xhr.open('POST', uploadUrl, true);
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
         xhr.timeout = 30000;
 
         xhr.upload.addEventListener('progress', function (e) {
@@ -145,7 +146,10 @@
             var file = items[i].getAsFile();
             if (!file || !isImage(file)) continue;
 
+            // 彻底阻止事件传播，防止 Typecho/CodeMirror 自己的处理器也触发
             e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
 
             if (file.size > MAX_SIZE) {
                 showToast('图片大小不能超过 10MB', 'error');
@@ -176,6 +180,7 @@
             setTimeout(init, 1000);
             return;
         }
+        // useCapture=true: 在捕获阶段就拦截，先于 CodeMirror 的处理器
         editor.addEventListener('paste', handlePaste, true);
     }
 

@@ -12,7 +12,7 @@ if (!defined('__TYPECHO_ROOT_DIR__')) exit;
  *
  * @package LskyPro
  * @author 老张博客
- * @version 1.1.0
+ * @version 1.2.0
  * @link https://github.com/laozhangge/LskyPro-for-Typecho
  */
 
@@ -79,7 +79,7 @@ class Plugin implements PluginInterface
 </div>
 <div class="lskypro-box" id="lskypro-str-box" style="display:none"><h4>可用存储策略 <small style="color:#999;">点击填入上方输入框</small></h4><div id="lskypro-str-list"></div></div>
 <div class="lskypro-box" id="lskypro-alb-box" style="display:none"><h4>可用相册 <small style="color:#999;">点击填入上方输入框</small></h4><div id="lskypro-alb-list"></div></div>
-<p style="color:#999;font-size:12px;">兰空图床上传 v1.1.0 | 作者：<a href="https://laozhang.org" target="_blank">老张博客</a> | <a href="https://github.com/laozhangge/LskyPro-for-Typecho" target="_blank">GitHub</a></p>
+<p style="color:#999;font-size:12px;">兰空图床上传 v1.2.0 | 作者：<a href="https://laozhang.org" target="_blank">老张博客</a> | <a href="https://github.com/laozhangge/LskyPro-for-Typecho" target="_blank">GitHub</a></p>
 <script>
 (function(){
 var AJ=(function(){var a=document.createElement('a');a.href=window.location.href;return a.protocol+'//'+a.host+'/usr/plugins/LskyPro/ajax.php'})();
@@ -130,19 +130,16 @@ HTML;
 
     /**
      * 附件URL处理 - 直接返回存储的完整URL，绕过Typecho的Common::url拼接
-     * 参考: yeyinghai/Lsky-Upload-pro
      */
     public static function attachmentHandle(array $content): string
     {
         $path = $content['attachment']->path ?? '';
         if (empty($path)) return '';
 
-        // 如果是完整的URL（兰空图床返回的），直接返回，不用Common::url拼接
         if (preg_match('#^https?://#i', $path)) {
             return $path;
         }
 
-        // 否则用Typecho默认方式处理
         return Common::url($path, Options::alloc()->siteUrl);
     }
 
@@ -151,11 +148,134 @@ HTML;
      */
     public static function injectScript()
     {
-        $opts = Options::alloc()->plugin('LskyPro');
-        $format = $opts->format ?? 'markdown';
-        $apiUrl = rtrim(Options::alloc()->siteUrl, '/') . '/usr/plugins/LskyPro/ajax.php';
-        echo '<script>window.__lskypro_format="' . htmlspecialchars($format, ENT_QUOTES) . '";window.__lskypro_ajax="' . htmlspecialchars($apiUrl, ENT_QUOTES) . '";</script>' . "\n";
-        echo '<script src="/usr/plugins/LskyPro/assets/paste-upload.js"></script>' . "\n";
+        echo '<script src="/usr/plugins/LskyPro/assets/paste-upload.js?v=1.2.0"></script>' . "\n";
+    }
+
+    /**
+     * 处理前端粘贴上传的 AJAX 请求
+     * 参考 yeyinghai/Lsky-Upload-pro 的架构：
+     * - 不走独立 ajax.php，直接在 Plugin.php 内处理
+     * - 从 Options 读取 api/token，无需前端传递
+     */
+    public static function pasteUploadHandle()
+    {
+        // 配置检查
+        $options = Options::alloc()->plugin('LskyPro');
+        if (empty($options->api)) {
+            self::_jsonResponse(false, '请先在插件设置中填写 API 地址');
+        }
+        if (empty($options->token)) {
+            self::_jsonResponse(false, '请先在插件设置中填写 Token');
+        }
+
+        // 文件检查
+        if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+            self::_jsonResponse(false, '未接收到文件或上传出错');
+        }
+
+        $file = $_FILES['file'];
+
+        // 扩展名校验
+        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $ext = preg_replace('/[^a-z0-9]/', '', $ext);
+        $allowed = ['jpg','jpeg','png','gif','webp','bmp','svg','tiff','ico','psd'];
+        if (!in_array($ext, $allowed)) {
+            self::_jsonResponse(false, '不支持的图片格式');
+        }
+
+        // 上传到兰空图床（复用 uploadHandle 的逻辑）
+        $api = rtrim($options->api, '/');
+        $token = $options->token;
+        $apiVersion = $options->api_version ?: 'v2';
+        $uploadUrl = $api . '/api/' . $apiVersion . '/upload';
+
+        $mimes = [
+            'jpg'=>'image/jpeg','jpeg'=>'image/jpeg','png'=>'image/png',
+            'gif'=>'image/gif','webp'=>'image/webp','bmp'=>'image/bmp',
+            'svg'=>'image/svg+xml','tiff'=>'image/tiff','ico'=>'image/x-icon',
+            'psd'=>'image/vnd.adobe.photoshop',
+        ];
+        $mime = $mimes[$ext] ?? 'application/octet-stream';
+
+        $params = ['file' => new \CURLFile($file['tmp_name'], $mime, $file['name'])];
+        $params['permission'] = intval($options->permission ?? 1);
+        $params['is_public'] = intval($options->permission ?? 1);
+
+        $strategyId = $options->strategy_id ?? '';
+        if (!empty($strategyId)) {
+            if ($apiVersion === 'v2') {
+                $params['storage_id'] = intval($strategyId);
+            } else {
+                $params['strategy_id'] = intval($strategyId);
+            }
+        }
+
+        $albumId = $options->album_id ?? '';
+        if (!empty($albumId)) {
+            $params['album_id'] = intval($albumId);
+        }
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $uploadUrl);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $token,
+            'Accept: application/json',
+        ]);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
+        $response = curl_exec($ch);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        if ($error || !$response) {
+            self::_jsonResponse(false, '上传请求失败: ' . $error);
+        }
+
+        $json = json_decode($response, true);
+        if (!$json || empty($json['status'])) {
+            self::_jsonResponse(false, $json['message'] ?? '上传失败');
+        }
+
+        // 解析图片URL
+        if ($apiVersion === 'v2') {
+            $imageUrl = $json['data']['public_url'] ?? $json['data']['url'] ?? '';
+        } else {
+            $imageUrl = $json['data']['links']['url'] ?? $json['data']['url'] ?? '';
+        }
+        if (empty($imageUrl)) {
+            self::_jsonResponse(false, '未获取到图片URL');
+        }
+        if (!preg_match('#^https?://#i', $imageUrl)) {
+            $imageUrl = $api . '/' . ltrim($imageUrl, '/');
+        }
+
+        $imageName = pathinfo($json['data']['origin_name'] ?? $file['name'], PATHINFO_FILENAME);
+
+        // 根据配置格式化内容
+        $content = self::_formatContent($imageName, $imageUrl);
+
+        self::_jsonResponse(true, '上传成功', [
+            'content' => $content,
+            'url' => $imageUrl,
+            'name' => $imageName,
+        ]);
+    }
+
+    /**
+     * 输出JSON响应并终止
+     */
+    private static function _jsonResponse(bool $status, string $message, array $data = [])
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'status' => $status,
+            'message' => $message,
+            'data' => $data,
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
     }
 
     /**
@@ -269,8 +389,6 @@ HTML;
             return false;
         }
 
-        // 确保返回完整的https:// URL
-        // 如果Common::url拼接了站点URL，injectScript的JS会修正
         if (!preg_match('#^https?://#i', $imageUrl)) {
             $imageUrl = rtrim($api, '/') . '/' . ltrim($imageUrl, '/');
         }
@@ -283,4 +401,18 @@ HTML;
             'ext' => $ext,
         ];
     }
+}
+
+// 粘贴上传 AJAX 入口（参考 yeyinghai/Lsky-Upload-pro）
+// Plugin.php 被 Typecho 加载时，如果 URL 带 ?action=lskypro_paste_upload 且是 POST，
+// 直接调用 pasteUploadHandle()，在 Typecho 框架内处理上传（可直接读 Options 配置）
+if (
+    isset($_GET['action'])
+    && $_GET['action'] === 'lskypro_paste_upload'
+    && $_SERVER['REQUEST_METHOD'] === 'POST'
+) {
+    while (ob_get_level()) {
+        ob_end_clean();
+    }
+    Plugin::pasteUploadHandle();
 }
