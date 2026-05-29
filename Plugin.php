@@ -68,6 +68,7 @@ class Plugin implements PluginInterface
 <style>
 #lsky-panel *{box-sizing:border-box}
 #lsky-panel{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;color:#1e293b;max-width:760px;margin:0}
+/* 隐藏Typecho自动生成的表单字段由下方JS处理 */
 .lsky-banner{display:flex;align-items:center;gap:16px;padding:20px 24px;background:linear-gradient(135deg,#1e3a8a 0%,#1d4ed8 50%,#3b82f6 100%);border-radius:14px;margin-bottom:20px;position:relative;overflow:hidden}
 .lsky-banner::after{content:'';position:absolute;right:-30px;top:-30px;width:160px;height:160px;border-radius:50%;background:rgba(255,255,255,.06)}
 .lsky-banner-icon{width:52px;height:52px;background:rgba(255,255,255,.18);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;position:relative;z-index:1}
@@ -212,11 +213,15 @@ class Plugin implements PluginInterface
 </div>
 </div>
 
-<p style="color:#94a3b8;font-size:12px;margin-top:8px">兰空图床上传 v2.0.0 | 作者：<a href="https://laozhang.org" target="_blank" style="color:#3b82f6">老张博客</a> | <a href="https://github.com/laozhangge/LskyPro-for-Typecho" target="_blank" style="color:#3b82f6">GitHub</a></p>
+
+<!-- footer removed -->
 </div>
 
 <script>
 (function(){
+// 隐藏Typecho自动生成的表单字段（保留提交按钮）
+var dls=document.querySelectorAll('form > dl');
+for(var i=0;i<dls.length;i++){if(dls[i].querySelector('input[name^="config"]'))dls[i].style.display='none'}
 var AJ=(function(){var a=document.createElement('a');a.href=window.location.href;return a.protocol+'//'+a.host+'/usr/plugins/LskyPro/ajax.php'})();
 function v(n){var e=document.querySelector('[name="config['+n+']"]');if(!e)e=document.querySelector('[name="'+n+'"]');return e?e.value.trim():''}
 function el(n){var e=document.querySelector('[name="config['+n+']"]');return e||document.querySelector('[name="'+n+'"]')}
@@ -247,12 +252,17 @@ html:'&lt;img src="https://img.example.com/xxx.jpg" alt="图片" /&gt;',
 bbcode:'[img]https://img.example.com/xxx.jpg[/img]'
 };
 function updatePrev(){
-var f=v('format')||'markdown';
+var r=document.querySelector('input[name="config[format]"]:checked');
+var f=r?r.value:'markdown';
 var code=document.getElementById('lsky-prev-code');
 if(code)code.textContent=fmtMap[f]||fmtMap.markdown;
 }
 var radios=document.querySelectorAll('input[name="config[format]"]');
-for(var i=0;i<radios.length;i++)radios[i].onchange=updatePrev;
+for(var i=0;i<radios.length;i++)radios[i].onchange=function(){
+// 同步radio值到隐藏input
+var hi=document.querySelector('input[name="config[format]"][type="text"]');if(hi)hi.value=this.value;
+updatePrev();
+};
 updatePrev();
 
 // 测试连接
