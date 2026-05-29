@@ -3,7 +3,7 @@
  * 兰空图床上传插件 for Typecho
  * 
  * @package LskyPro for Typecho
- * @author isYangs, 小旭, 老张播客
+ * @author 老张博客
  * @version 1.3.6
  * @link https://github.com/laozhangge/LskyPro-for-Typecho
  */
@@ -65,11 +65,6 @@ class LskyPro_Plugin implements Typecho_Plugin_Interface
      */
     public static function deactivate()
     {
-        // 可选：删除数据库表
-        // $db = Typecho_Db::get();
-        // $prefix = $db->getPrefix();
-        // $db->query("DROP TABLE IF EXISTS `{$prefix}lskypro_config`");
-        
         return _t('兰空图床上传插件已停用');
     }
     
@@ -222,7 +217,7 @@ class LskyPro_Plugin implements Typecho_Plugin_Interface
             
             <h3>关于</h3>
             <p>兰空图床上传 v<?php echo self::VERSION; ?></p>
-            <p>原作者：isYangs | 二次开发：小旭 | 优化：<a href="https://laozhang.org" target="_blank">老张播客</a></p>
+            <p>作者：<a href="https://laozhang.org" target="_blank">老张博客</a></p>
             <p>插件主页：<a href="https://github.com/laozhangge/LskyPro-for-Typecho" target="_blank">GitHub</a></p>
             <p>兰空图床官网：<a href="https://www.lsky.pro/" target="_blank">https://www.lsky.pro/</a></p>
         </div>
