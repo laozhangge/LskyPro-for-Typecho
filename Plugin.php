@@ -12,7 +12,7 @@ if (!defined('__TYPECHO_ROOT_DIR__')) exit;
  *
  * @package LskyPro
  * @author 老张博客
- * @version 1.2.0
+ * @version 1.0.1
  * @link https://github.com/laozhangge/LskyPro-for-Typecho
  */
 
@@ -79,7 +79,7 @@ class Plugin implements PluginInterface
 </div>
 <div class="lskypro-box" id="lskypro-str-box" style="display:none"><h4>可用存储策略 <small style="color:#999;">点击填入上方输入框</small></h4><div id="lskypro-str-list"></div></div>
 <div class="lskypro-box" id="lskypro-alb-box" style="display:none"><h4>可用相册 <small style="color:#999;">点击填入上方输入框</small></h4><div id="lskypro-alb-list"></div></div>
-<p style="color:#999;font-size:12px;">兰空图床上传 v1.2.0 | 作者：<a href="https://laozhang.org" target="_blank">老张博客</a> | <a href="https://github.com/laozhangge/LskyPro-for-Typecho" target="_blank">GitHub</a></p>
+<p style="color:#999;font-size:12px;">兰空图床上传 v1.0.1 | 作者：<a href="https://laozhang.org" target="_blank">老张博客</a> | <a href="https://github.com/laozhangge/LskyPro-for-Typecho" target="_blank">GitHub</a></p>
 <script>
 (function(){
 var AJ=(function(){var a=document.createElement('a');a.href=window.location.href;return a.protocol+'//'+a.host+'/usr/plugins/LskyPro/ajax.php'})();
@@ -148,7 +148,7 @@ HTML;
      */
     public static function injectScript()
     {
-        echo '<script src="/usr/plugins/LskyPro/assets/paste-upload.js?v=1.2.0"></script>' . "\n";
+        echo '<script src="/usr/plugins/LskyPro/assets/paste-upload.js?v=1.0.1"></script>' . "\n";
     }
 
     /**
