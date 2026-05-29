@@ -12,7 +12,7 @@ if (!defined('__TYPECHO_ROOT_DIR__')) exit;
  *
  * @package LskyPro
  * @author 老张博客
- * @version 1.0.0
+ * @version 1.1.0
  * @link https://github.com/laozhangge/LskyPro-for-Typecho
  */
 
@@ -41,16 +41,84 @@ class Plugin implements PluginInterface
         $permission = new Text('permission', NULL, '1', '图片权限：', '<code>1</code> 公开，<code>0</code> 私有');
         $form->addInput($permission);
 
-        $strategyId = new Text('strategy_id', NULL, '', '存储策略ID：', '留空使用默认策略。可在兰空图床后台查看策略ID');
+        $strategyId = new Text('strategy_id', NULL, '', '存储策略ID：', '<span id="lskypro-str-hint">留空使用默认策略</span>');
         $form->addInput($strategyId);
 
-        $albumId = new Text('album_id', NULL, '', '相册ID：', '留空不指定相册。可在兰空图床后台查看相册ID');
+        $albumId = new Text('album_id', NULL, '', '相册ID：', '<span id="lskypro-alb-hint">留空不指定相册</span>');
         $form->addInput($albumId);
 
         $maxSize = new Text('max_size', NULL, '10', '最大上传大小(MB)：', '单位MB，默认10');
         $form->addInput($maxSize);
 
-        echo '<p style="color:#999;font-size:12px;">兰空图床上传 v1.0.0 &nbsp;|&nbsp; 作者：<a href="https://laozhang.org" target="_blank">老张博客</a> &nbsp;|&nbsp; <a href="https://github.com/laozhangge/LskyPro-for-Typecho" target="_blank">GitHub</a></p>';
+        // AJAX 端点 URL
+        $ajaxUrl = \Typecho\Common::url('usr/plugins/LskyPro/ajax.php', __TYPECHO_ROOT_DIR__);
+
+        echo <<<HTML
+<style>
+.lskypro-box{background:#fff;padding:15px 20px;margin:15px 0;border:1px solid #ddd;border-radius:4px}
+.lskypro-box h4{margin:0 0 10px;padding-bottom:8px;border-bottom:1px solid #eee}
+.lskypro-btn{display:inline-block;padding:6px 16px;background:#0073aa;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:13px}
+.lskypro-btn:hover{background:#005a87}
+.lskypro-btn:disabled{background:#ccc;cursor:not-allowed}
+.lskypro-load{display:none;margin-left:8px;color:#666;font-size:12px}
+.lskypro-msg{padding:8px 12px;margin:8px 0;border-left:4px solid;font-size:13px;display:none}
+.lskypro-msg-ok{border-color:#46b450;background:#f0f8f0}
+.lskypro-msg-err{border-color:#dc3232;background:#fdf0f0}
+.lskypro-item{display:inline-block;margin:3px;padding:4px 10px;background:#f0f0f0;border:1px solid #ddd;border-radius:3px;font-size:12px;cursor:pointer}
+.lskypro-item:hover{background:#0073aa;color:#fff;border-color:#0073aa}
+.lskypro-item-active{background:#0073aa;color:#fff;border-color:#005a87}
+</style>
+<div class="lskypro-box">
+<h4>测试连接</h4>
+<p><button type="button" id="lskypro-test-btn" class="lskypro-btn">测试连接</button><span id="lskypro-test-load" class="lskypro-load">正在测试...</span></p>
+<div id="lskypro-test-msg" class="lskypro-msg"></div>
+<p style="font-size:12px;color:#999;">填写API网址和Token后点击测试，成功后自动加载策略和相册列表，点击即可填入ID。</p>
+</div>
+<div class="lskypro-box" id="lskypro-str-box" style="display:none"><h4>可用存储策略 <small style="color:#999;">点击填入上方输入框</small></h4><div id="lskypro-str-list"></div></div>
+<div class="lskypro-box" id="lskypro-alb-box" style="display:none"><h4>可用相册 <small style="color:#999;">点击填入上方输入框</small></h4><div id="lskypro-alb-list"></div></div>
+<p style="color:#999;font-size:12px;">兰空图床上传 v1.1.0 | 作者：<a href="https://laozhang.org" target="_blank">老张博客</a> | <a href="https://github.com/laozhangge/LskyPro-for-Typecho" target="_blank">GitHub</a></p>
+<script>
+(function(){
+var AJ='$ajaxUrl';
+function v(n){var e=document.querySelector('[name="config['+n+']"]');if(!e)e=document.querySelector('[name="'+n+'"]');return e?e.value.trim():''}
+function el(n){var e=document.querySelector('[name="config['+n+']"]');return e||document.querySelector('[name="'+n+'"]')}
+function msg(ok,t){var m=document.getElementById('lskypro-test-msg');m.style.display='block';m.className='lskypro-msg '+(ok?'lskypro-msg-ok':'lskypro-msg-err');m.innerHTML=t}
+function rl(cid,bid,items,fld,hid){
+var b=document.getElementById(bid),c=document.getElementById(cid),inp=el(fld);
+b.style.display='block';c.innerHTML='';
+items.forEach(function(i){
+var s=document.createElement('span');s.className='lskypro-item';
+if(inp&&String(i.id)===String(inp.value))s.className+=' lskypro-item-active';
+s.textContent=i.name+' (ID:'+i.id+')';
+s.onclick=function(){if(inp)inp.value=i.id;var a=c.querySelectorAll('.lskypro-item');for(var j=0;j<a.length;j++)a[j].className='lskypro-item';s.className='lskypro-item lskypro-item-active'};
+c.appendChild(s)});
+document.getElementById(hid).textContent='已加载 '+items.length+' 个，点击选择';
+}
+function xpost(fd,cb){
+var x=new XMLHttpRequest();x.open('POST',AJ,true);x.timeout=15000;
+x.onload=function(){try{cb(null,JSON.parse(x.responseText))}catch(e){cb(e)}};
+x.onerror=function(){cb(new Error('网络错误'))};
+x.ontimeout=function(){cb(new Error('超时'))};x.send(fd);
+}
+document.getElementById('lskypro-test-btn').onclick=function(){
+var api=v('api'),tok=v('token'),ver=v('api_version')||'v2',btn=this;
+if(!api||!tok){msg(false,'请先填写API网址和Token');return}
+btn.disabled=true;document.getElementById('lskypro-test-load').style.display='inline';
+var fd=new FormData();fd.append('__lskypro_action','test_connection');fd.append('api',api);fd.append('token',tok);fd.append('api_version',ver);
+xpost(fd,function(err,r){
+document.getElementById('lskypro-test-load').style.display='none';btn.disabled=false;
+if(err){msg(false,'❌ 响应格式错误');return}
+if(r.success){msg(true,'✅ 连接成功！欢迎 '+r.name);
+var fd2=new FormData();fd2.append('__lskypro_action','get_strategies');fd2.append('api',api);fd2.append('token',tok);
+xpost(fd2,function(e2,r2){if(!e2&&r2.success&&r2.strategies)rl('lskypro-str-list','lskypro-str-box',r2.strategies,'strategy_id','lskypro-str-hint')});
+var fd3=new FormData();fd3.append('__lskypro_action','get_albums');fd3.append('api',api);fd3.append('token',tok);
+xpost(fd3,function(e3,r3){if(!e3&&r3.success&&r3.albums)rl('lskypro-alb-list','lskypro-alb-box',r3.albums,'album_id','lskypro-alb-hint')});
+}else{msg(false,'❌ '+(r.message||'连接失败'))}
+});
+};
+})();
+</script>
+HTML;
     }
 
     public static function personalConfig(Form $form)
