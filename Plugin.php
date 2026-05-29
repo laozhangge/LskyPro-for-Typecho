@@ -12,7 +12,7 @@ if (!defined('__TYPECHO_ROOT_DIR__')) {
     exit;
 }
 
-class LskyPro_Plugin implements Typecho_Plugin_Interface
+class LskyPro_Plugin implements \Typecho\Plugin\PluginInterface
 {
     /**
      * 插件版本
@@ -24,10 +24,10 @@ class LskyPro_Plugin implements Typecho_Plugin_Interface
      */
     public static function activate()
     {
-        Typecho_Plugin::factory('admin/write-post.php')->bottom = array('LskyPro_Plugin', 'render');
-        Typecho_Plugin::factory('admin/write-page.php')->bottom = array('LskyPro_Plugin', 'render');
+        \Typecho\Plugin::factory('admin/write-post.php')->bottom = array('LskyPro_Plugin', 'render');
+        \Typecho\Plugin::factory('admin/write-page.php')->bottom = array('LskyPro_Plugin', 'render');
         
-        $db = Typecho_Db::get();
+        $db = \Typecho\Db::get();
         $prefix = $db->getPrefix();
         
         $db->query("CREATE TABLE IF NOT EXISTS `{$prefix}lskypro_config` (
@@ -69,7 +69,7 @@ class LskyPro_Plugin implements Typecho_Plugin_Interface
      */
     public static function getConfig($key = null)
     {
-        $db = Typecho_Db::get();
+        $db = \Typecho\Db::get();
         $prefix = $db->getPrefix();
         
         if ($key !== null) {
@@ -90,7 +90,7 @@ class LskyPro_Plugin implements Typecho_Plugin_Interface
      */
     public static function saveConfig($key, $value)
     {
-        $db = Typecho_Db::get();
+        $db = \Typecho\Db::get();
         $prefix = $db->getPrefix();
         
         $db->query("INSERT INTO `{$prefix}lskypro_config` (`config_key`, `config_value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `config_value` = ?", $key, $value, $value);
@@ -101,14 +101,14 @@ class LskyPro_Plugin implements Typecho_Plugin_Interface
      */
     private static function pluginUrl($path)
     {
-        $options = Typecho_Widget::widget('Widget_Options');
+        $options = \Typecho\Widget::widget('Widget_Options');
         echo $options->pluginUrl . '/LskyPro-Typecho/' . $path;
     }
     
     /**
      * 插件配置页面
      */
-    public static function config(Typecho_Widget_Helper_Form $form)
+    public static function config(\Typecho\Widget\Helper\Form $form)
     {
         $config = self::getConfig();
         ?>
@@ -227,7 +227,7 @@ class LskyPro_Plugin implements Typecho_Plugin_Interface
         
         <script>
         (function() {
-            var ajaxUrl = '<?php echo Typecho_Common::url("extending.php?panel=LskyPro_Plugin%2Fajax.php", $options->adminUrl); ?>';
+            var ajaxUrl = '<?php echo \Typecho\Common::url("extending.php?panel=LskyPro_Plugin%2Fajax.php", $options->adminUrl); ?>';
             var currentStorageId = '<?php echo $config['storage_id']; ?>';
             var currentAlbumId = '<?php echo $config['album_id']; ?>';
             
@@ -353,7 +353,7 @@ class LskyPro_Plugin implements Typecho_Plugin_Interface
     /**
      * 个人配置页面
      */
-    public static function personalConfig(Typecho_Widget_Helper_Form $form)
+    public static function personalConfig(\Typecho\Widget\Helper\Form $form)
     {
         // 个人配置页面（暂不使用）
     }
