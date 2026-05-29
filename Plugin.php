@@ -5,6 +5,7 @@ use Typecho\Plugin\PluginInterface;
 use Typecho\Widget\Helper\Form;
 use Typecho\Widget\Helper\Form\Element\Text;
 use Typecho\Widget\Helper\Form\Element\Select;
+use Typecho\Widget\Helper\Form\Element\Hidden;
 use Typecho\Common;
 use Widget\Options;
 
@@ -41,6 +42,11 @@ class Plugin implements PluginInterface
      */
     public static function config(Form $form)
     {
+        // 拦截AJAX请求（测试连接/策略/相册列表）
+        if (!empty($_POST['__lskypro_action'])) {
+            self::handleAjax();
+        }
+
         // 基本设置
         $api = new Text('api', NULL, '', 'API网址',
             '填写兰空图床域名，包含 http(s)://，不带 / 结尾<br>'
@@ -258,7 +264,7 @@ class Plugin implements PluginInterface
      */
     public static function personalConfig(Form $form)
     {
-        $form->addInput(new Hidden('personal'));
+        // 留空（Typecho要求必须有此方法）
     }
 
     /**
@@ -309,7 +315,7 @@ class Plugin implements PluginInterface
             $params = ['file' => new \CURLFile($tmpFile, mime_content_type($tmpFile), $file['name'])];
 
             if ($apiVersion === 'v2') {
-                if (!empty($options->strategy_id)) $params['strategy_id'] = $options->strategy_id;
+                if (!empty($options->strategy_id)) $params['storage_id'] = $options->strategy_id;
                 if (!empty($options->album_id)) $params['album_id'] = $options->album_id;
                 $params['is_public'] = ($options->permission === '0') ? 0 : 1;
             } else {
@@ -519,6 +525,3 @@ class Plugin implements PluginInterface
         return in_array($ext, ['gif', 'jpg', 'jpeg', 'png', 'tiff', 'bmp', 'ico', 'psd', 'webp']);
     }
 }
-
-// 拦截自定义AJAX请求（在config页面渲染前处理）
-Plugin::handleAjax();
