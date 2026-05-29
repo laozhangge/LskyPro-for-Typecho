@@ -170,7 +170,7 @@ HTML;
         $mime = $mimes[$ext] ?? 'application/octet-stream';
 
         $params = ['file' => new \CURLFile($tmpFile, $mime, $file['name'])];
-        $params['permission'] = $options->permission ?? '1';
+        $params['permission'] = intval($options->permission ?? 1);
 
         $strategyId = $options->strategy_id ?? '';
         if (!empty($strategyId)) {
