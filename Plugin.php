@@ -213,6 +213,11 @@ HTML;
             return false;
         }
 
+        // 确保是绝对URL（防止Typecho拼接站点URL）
+        if (!preg_match('#^https?://#i', $imageUrl)) {
+            $imageUrl = rtrim($api, '/') . '/' . ltrim($imageUrl, '/');
+        }
+
         return [
             'name' => $file['name'],
             'path' => $imageUrl,
