@@ -12,7 +12,7 @@ if (!defined('__TYPECHO_ROOT_DIR__')) exit;
  *
  * @package LskyPro
  * @author 老张博客
- * @version 2.0.1
+ * @version 2.0.2
  * @link https://github.com/laozhangge/LskyPro-for-Typecho
  */
 
@@ -31,62 +31,137 @@ class Plugin implements PluginInterface
 
     public static function config(Form $form)
     {
-        $api = new Text('api', NULL, '', 'API网址：', '填写兰空图床域名，包含 http(s)://，不带 / 结尾。示例：<code>https://pic.laozhang.org</code>');
+        // 注册隐藏字段（Typecho用来保存值）
+        $api = new Text('api', NULL, '', '', '');
         $form->addInput($api);
-
-        $token = new Text('token', NULL, '', 'API Token：', '在兰空图床后台获取的API令牌。示例：<code>1|UYsgSjmtTkPjS8qPaLl98dJwdVtU492vQbDFI6pg</code>');
+        $token = new Text('token', NULL, '', '', '');
         $form->addInput($token);
-
-        $apiVersion = new Text('api_version', NULL, 'v2', 'API版本：', '填写 <code>v1</code> 或 <code>v2</code>，默认 v2');
+        $apiVersion = new Text('api_version', NULL, 'v2', '', '');
         $form->addInput($apiVersion);
-
-        $permission = new Text('permission', NULL, '1', '图片权限：', '<code>1</code> 公开，<code>0</code> 私有');
+        $permission = new Text('permission', NULL, '1', '', '');
         $form->addInput($permission);
-
-        $strategyId = new Text('strategy_id', NULL, '', '存储策略ID：', '<span id="lskypro-str-hint">留空使用默认策略，测试连接后自动显示可选策略</span>');
+        $strategyId = new Text('strategy_id', NULL, '', '', '');
         $form->addInput($strategyId);
-
-        $albumId = new Text('album_id', NULL, '', '相册ID：', '<span id="lskypro-alb-hint">留空不指定相册，测试连接后自动显示可选相册</span>');
+        $albumId = new Text('album_id', NULL, '', '', '');
         $form->addInput($albumId);
-
-        $maxSize = new Text('max_size', NULL, '10', '最大上传大小(MB)：', '单位MB，默认10');
+        $maxSize = new Text('max_size', NULL, '10', '', '');
         $form->addInput($maxSize);
-
-        $format = new Text('format', NULL, 'markdown', '插入格式：', '可选：<code>markdown</code> / <code>url</code> / <code>html</code> / <code>bbcode</code>，默认 markdown');
+        $format = new Text('format', NULL, 'markdown', '', '');
         $form->addInput($format);
 
-        // 测试连接按钮 + 策略/相册列表
-        echo '<div style="margin:15px 0;padding:15px 20px;background:#fff;border:1px solid #ddd;border-radius:4px">';
-        echo '<h4 style="margin:0 0 10px">测试连接</h4>';
-        echo '<p><button type="button" id="lskypro-test-btn" style="padding:6px 16px;background:#0073aa;color:#fff;border:none;border-radius:3px;cursor:pointer">测试连接</button>';
-        echo ' <span id="lskypro-test-load" style="display:none;color:#666;font-size:12px">正在测试...</span></p>';
-        echo '<div id="lskypro-test-msg" style="display:none;padding:8px 12px;margin:8px 0;border-left:4px solid;font-size:13px"></div>';
-        echo '<div id="lskypro-str-list" style="margin:5px 0"></div>';
-        echo '<div id="lskypro-alb-list" style="margin:5px 0"></div>';
+        // 读取已保存值
+        try { $opts = Options::alloc()->plugin('LskyPro'); } catch (\Exception $e) { $opts = null; }
+        $vApi   = htmlspecialchars($opts->api ?? '', ENT_QUOTES);
+        $vToken = htmlspecialchars($opts->token ?? '', ENT_QUOTES);
+        $vVer   = htmlspecialchars($opts->api_version ?? 'v2', ENT_QUOTES);
+        $vPerm  = htmlspecialchars($opts->permission ?? '1', ENT_QUOTES);
+        $vStr   = htmlspecialchars($opts->strategy_id ?? '', ENT_QUOTES);
+        $vAlb   = htmlspecialchars($opts->album_id ?? '', ENT_QUOTES);
+        $vSize  = htmlspecialchars($opts->max_size ?? '10', ENT_QUOTES);
+        $vFmt   = $opts->format ?? 'markdown';
+        $ckMd   = $vFmt === 'markdown' ? 'checked' : '';
+        $ckUrl  = $vFmt === 'url' ? 'checked' : '';
+        $ckHtm  = $vFmt === 'html' ? 'checked' : '';
+        $ckBbc  = $vFmt === 'bbcode' ? 'checked' : '';
+
+        // 输出自定义UI
+        echo '<style>
+        .lsky-wrap{background:#fff;padding:20px;margin:10px 0;border:1px solid #ddd;border-radius:4px}
+        .lsky-wrap h3{margin:0 0 15px;padding-bottom:10px;border-bottom:1px solid #eee;font-size:14px}
+        .lsky-row{margin-bottom:12px}
+        .lsky-row label{display:block;font-size:12px;font-weight:600;color:#333;margin-bottom:4px}
+        .lsky-row input[type=text]{width:100%;max-width:500px;padding:6px 10px;border:1px solid #ddd;border-radius:3px;font-size:13px}
+        .lsky-row .hint{font-size:11px;color:#999;margin-top:3px}
+        .lsky-btn{padding:6px 16px;background:#0073aa;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:13px}
+        .lsky-btn:hover{background:#005a87}
+        .lsky-btn:disabled{background:#ccc}
+        .lsky-msg{display:none;padding:8px 12px;margin:10px 0;border-left:4px solid;font-size:13px}
+        .lsky-radios{display:flex;gap:15px;margin-top:5px}
+        .lsky-radios label{display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;font-size:13px}
+        .lsky-item{display:inline-block;margin:3px;padding:4px 10px;background:#f0f0f0;border:1px solid #ddd;border-radius:3px;font-size:12px;cursor:pointer}
+        .lsky-item:hover{background:#0073aa;color:#fff;border-color:#0073aa}
+        .lsky-item-on{background:#0073aa;color:#fff;border-color:#005a87}
+        </style>';
+
+        // 连接设置
+        echo '<div class="lsky-wrap">';
+        echo '<h3>🔗 连接设置</h3>';
+        echo '<div class="lsky-row"><label>API网址 *</label><input type="text" id="lsky-in-api" value="' . $vApi . '" placeholder="https://pic.laozhang.org"></div>';
+        echo '<div class="lsky-row"><label>API Token *</label><input type="text" id="lsky-in-token" value="' . $vToken . '" placeholder="1|UYsgSjmtTkPjS8qPaLl98dJwdVtU492vQbDFI6pg"></div>';
+        echo '<div class="lsky-row"><label>API版本</label><input type="text" id="lsky-in-ver" value="' . $vVer . '" placeholder="v2" style="max-width:100px"><span class="hint"> v1 或 v2</span></div>';
+        echo '<div class="lsky-row"><label>图片权限</label><input type="text" id="lsky-in-perm" value="' . $vPerm . '" placeholder="1" style="max-width:100px"><span class="hint"> 1=公开 0=私有</span></div>';
+        echo '<div style="margin-top:15px"><button type="button" id="lsky-test-btn" class="lsky-btn">测试连接</button> <span id="lsky-test-load" style="display:none;color:#666;font-size:12px">正在测试...</span></div>';
+        echo '<div id="lsky-test-msg" class="lsky-msg"></div>';
         echo '</div>';
 
-        echo '<p style="color:#999;font-size:12px">兰空图床上传 v2.0.1 | <a href="https://github.com/laozhangge/LskyPro-for-Typecho" target="_blank">GitHub</a></p>';
+        // 存储设置
+        echo '<div class="lsky-wrap">';
+        echo '<h3>📦 存储设置 <small style="color:#999;font-weight:normal">测试连接后自动加载</small></h3>';
+        echo '<div class="lsky-row"><label>存储策略ID</label><input type="text" id="lsky-in-str" value="' . $vStr . '" placeholder="留空使用默认策略"><div id="lsky-str-list" style="margin-top:5px"></div><div class="hint" id="lsky-str-hint">测试连接后显示可选策略</div></div>';
+        echo '<div class="lsky-row"><label>相册ID</label><input type="text" id="lsky-in-alb" value="' . $vAlb . '" placeholder="留空不指定相册"><div id="lsky-alb-list" style="margin-top:5px"></div><div class="hint" id="lsky-alb-hint">测试连接后显示可选相册</div></div>';
+        echo '<div class="lsky-row"><label>最大上传大小(MB)</label><input type="text" id="lsky-in-size" value="' . $vSize . '" placeholder="10" style="max-width:100px"></div>';
+        echo '</div>';
 
-        // JS
+        // 插入格式
+        echo '<div class="lsky-wrap">';
+        echo '<h3>📝 插入格式</h3>';
+        echo '<div class="lsky-row"><label>选择上传后插入编辑器的链接格式</label>';
+        echo '<div class="lsky-radios">';
+        echo '<label><input type="radio" name="lsky-fmt" value="markdown" ' . $ckMd . '> Markdown</label>';
+        echo '<label><input type="radio" name="lsky-fmt" value="url" ' . $ckUrl . '> URL</label>';
+        echo '<label><input type="radio" name="lsky-fmt" value="html" ' . $ckHtm . '> HTML</label>';
+        echo '<label><input type="radio" name="lsky-fmt" value="bbcode" ' . $ckBbc . '> BBCode</label>';
+        echo '</div></div>';
+        echo '</div>';
+
+        // JS - 用window.onload确保Typecho表单已渲染
         $ajaxUrl = rtrim(Options::alloc()->siteUrl, '/') . '/usr/plugins/LskyPro/ajax.php';
         echo '<script>
-        (function(){
+        window.addEventListener("DOMContentLoaded", function(){
+        // 隐藏Typecho自动生成的表单字段
+        var dls=document.querySelectorAll("form > dl");
+        for(var i=0;i<dls.length;i++){
+            var has=dls[i].querySelector("input[name^\\"config\\"]");
+            if(has) dls[i].style.display="none";
+        }
+
         var AJ="' . htmlspecialchars($ajaxUrl, ENT_QUOTES) . '";
-        function getVal(n){var e=document.querySelector("[name=\\"config["+n+"]\\"]");return e?e.value.trim():""}
-        function getEl(n){return document.querySelector("[name=\\"config["+n+"]\\"]")}
-        function msg(ok,t){var m=document.getElementById("lskypro-test-msg");m.style.display="block";m.style.borderColor=ok?"#46b450":"#dc3232";m.style.background=ok?"#f0f8f0":"#fdf0f0";m.innerHTML=t}
-        function showList(listId,hintId,items,fieldName){
-            var c=document.getElementById(listId),inp=getEl(fieldName);
+
+        // 同步自定义输入框 → Typecho隐藏字段
+        function sync(){
+            var map={"lsky-in-api":"api","lsky-in-token":"token","lsky-in-ver":"api_version","lsky-in-perm":"permission","lsky-in-str":"strategy_id","lsky-in-alb":"album_id","lsky-in-size":"max_size"};
+            for(var k in map){
+                var src=document.getElementById(k);
+                var dst=document.querySelector("[name=\\"config["+map[k]+"]\\"]");
+                if(src&&dst) dst.value=src.value;
+            }
+            // 同步radio → hidden format字段
+            var checked=document.querySelector("input[name=\\"lsky-fmt\\"]:checked");
+            var fmtEl=document.querySelector("[name=\\"config[format]\\"]");
+            if(checked&&fmtEl) fmtEl.value=checked.value;
+        }
+        // 实时同步
+        var inputs=document.querySelectorAll("#lsky-in-api,#lsky-in-token,#lsky-in-ver,#lsky-in-perm,#lsky-in-str,#lsky-in-alb,#lsky-in-size");
+        for(var i=0;i<inputs.length;i++) inputs[i].addEventListener("input",sync);
+        var radios=document.querySelectorAll("input[name=\\"lsky-fmt\\"]");
+        for(var i=0;i<radios.length;i++) radios[i].addEventListener("change",sync);
+        // 保存前同步
+        var form=document.querySelector("form");
+        if(form) form.addEventListener("submit",sync);
+
+        function msg(ok,t){var m=document.getElementById("lsky-test-msg");m.style.display="block";m.style.borderColor=ok?"#46b450":"#dc3232";m.style.background=ok?"#f0f8f0":"#fdf0f0";m.innerHTML=t}
+        function showList(listId,hintId,items,inputId){
+            var c=document.getElementById(listId),inp=document.getElementById(inputId);
             c.innerHTML="";
             items.forEach(function(i){
-                var s=document.createElement("span");
-                s.style.cssText="display:inline-block;margin:3px;padding:4px 10px;background:#f0f0f0;border:1px solid #ddd;border-radius:3px;font-size:12px;cursor:pointer";
-                if(inp&&String(i.id)===String(inp.value)){s.style.background="#0073aa";s.style.color="#fff"}
+                var s=document.createElement("span");s.className="lsky-item";
+                if(inp&&String(i.id)===String(inp.value)) s.className+=" lsky-item-on";
                 s.textContent=i.name+" (ID:"+i.id+")";
                 s.onclick=function(){
                     if(inp)inp.value=i.id;
-                    var a=c.querySelectorAll("span");for(var j=0;j<a.length;j++){a[j].style.background="#f0f0f0";a[j].style.color=""}
-                    s.style.background="#0073aa";s.style.color="#fff";
+                    var a=c.querySelectorAll(".lsky-item");for(var j=0;j<a.length;j++)a[j].className="lsky-item";
+                    s.className="lsky-item lsky-item-on";
+                    sync();
                 };
                 c.appendChild(s);
             });
@@ -97,35 +172,39 @@ class Plugin implements PluginInterface
             x.onload=function(){try{cb(null,JSON.parse(x.responseText))}catch(e){cb(e)}};
             x.onerror=function(){cb(new Error("网络错误"))};x.ontimeout=function(){cb(new Error("超时"))};x.send(fd);
         }
-        document.getElementById("lskypro-test-btn").onclick=function(){
-            var api=getVal("api"),tok=getVal("token"),ver=getVal("api_version")||"v2",btn=this;
+
+        document.getElementById("lsky-test-btn").onclick=function(){
+            var api=document.getElementById("lsky-in-api").value.trim();
+            var tok=document.getElementById("lsky-in-token").value.trim();
+            var ver=document.getElementById("lsky-in-ver").value.trim()||"v2";
+            var btn=this;
             if(!api||!tok){msg(false,"请先填写API网址和Token");return}
-            btn.disabled=true;document.getElementById("lskypro-test-load").style.display="inline";
+            sync();
+            btn.disabled=true;document.getElementById("lsky-test-load").style.display="inline";
             var fd=new FormData();fd.append("__lskypro_action","test_connection");fd.append("api",api);fd.append("token",tok);fd.append("api_version",ver);
             xpost(fd,function(err,r){
-                document.getElementById("lskypro-test-load").style.display="none";btn.disabled=false;
+                document.getElementById("lsky-test-load").style.display="none";btn.disabled=false;
                 if(err){msg(false,"❌ 响应格式错误");return}
                 if(r.success){
                     msg(true,"✅ 连接成功！欢迎 "+r.name);
                     var fd2=new FormData();fd2.append("__lskypro_action","get_strategies");fd2.append("api",api);fd2.append("token",tok);
-                    xpost(fd2,function(e2,r2){if(!e2&&r2.success&&r2.strategies)showList("lskypro-str-list","lskypro-str-hint",r2.strategies,"strategy_id")});
+                    xpost(fd2,function(e2,r2){if(!e2&&r2.success&&r2.strategies)showList("lsky-str-list","lsky-str-hint",r2.strategies,"lsky-in-str")});
                     var fd3=new FormData();fd3.append("__lskypro_action","get_albums");fd3.append("api",api);fd3.append("token",tok);
-                    xpost(fd3,function(e3,r3){if(!e3&&r3.success&&r3.albums)showList("lskypro-alb-list","lskypro-alb-hint",r3.albums,"album_id")});
+                    xpost(fd3,function(e3,r3){if(!e3&&r3.success&&r3.albums)showList("lsky-alb-list","lsky-alb-hint",r3.albums,"lsky-in-alb")});
                 }else{msg(false,"❌ "+(r.message||"连接失败"))}
             });
         };
-        })();
+        });
         </script>';
     }
 
     /**
-     * 注入编辑器脚本 - 处理格式化插入
+     * 注入编辑器脚本
      */
     public static function injectScript()
     {
         try { $opts = Options::alloc()->plugin('LskyPro'); } catch (\Exception $e) { $opts = null; }
         $format = $opts->format ?? 'markdown';
-
         echo '<script>window.__lskyFormat="' . htmlspecialchars($format, ENT_QUOTES) . '";</script>' . "\n";
     }
 
@@ -224,7 +303,6 @@ class Plugin implements PluginInterface
             return false;
         }
 
-        // 确保是绝对URL
         if (!preg_match('#^https?://#i', $imageUrl)) {
             $imageUrl = rtrim($api, '/') . '/' . ltrim($imageUrl, '/');
         }
