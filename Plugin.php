@@ -50,9 +50,6 @@ class Plugin implements PluginInterface
         $maxSize = new Text('max_size', NULL, '10', '最大上传大小(MB)：', '单位MB，默认10');
         $form->addInput($maxSize);
 
-        // AJAX 端点 URL
-        $ajaxUrl = \Typecho\Common::url('usr/plugins/LskyPro/ajax.php', __TYPECHO_ROOT_DIR__);
-
         echo <<<HTML
 <style>
 .lskypro-box{background:#fff;padding:15px 20px;margin:15px 0;border:1px solid #ddd;border-radius:4px}
@@ -79,7 +76,7 @@ class Plugin implements PluginInterface
 <p style="color:#999;font-size:12px;">兰空图床上传 v1.1.0 | 作者：<a href="https://laozhang.org" target="_blank">老张博客</a> | <a href="https://github.com/laozhangge/LskyPro-for-Typecho" target="_blank">GitHub</a></p>
 <script>
 (function(){
-var AJ='$ajaxUrl';
+var AJ=(function(){var a=document.createElement('a');a.href=window.location.href;return a.protocol+'//'+a.host+'/usr/plugins/LskyPro/ajax.php'})();
 function v(n){var e=document.querySelector('[name="config['+n+']"]');if(!e)e=document.querySelector('[name="'+n+'"]');return e?e.value.trim():''}
 function el(n){var e=document.querySelector('[name="config['+n+']"]');return e||document.querySelector('[name="'+n+'"]')}
 function msg(ok,t){var m=document.getElementById('lskypro-test-msg');m.style.display='block';m.className='lskypro-msg '+(ok?'lskypro-msg-ok':'lskypro-msg-err');m.innerHTML=t}

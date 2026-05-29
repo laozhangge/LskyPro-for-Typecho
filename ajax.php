@@ -1,16 +1,8 @@
 <?php
 /**
- * LskyPro AJAX 处理
- * 单独文件，避免干扰 config() 方法
+ * LskyPro AJAX 处理 - 独立文件，不加载Typecho框架
+ * 直接代理请求到兰空图床API
  */
-require __DIR__ . '/../../../config.inc.php';
-
-\Typecho\Common::init();
-\Typecho\Widget::alloc('Widget_Options');
-
-// 必须登录且有权限
-\Typecho\Widget::widget('Widget_User')->pass('administrator');
-
 header('Content-Type: application/json; charset=utf-8');
 
 $action = $_POST['__lskypro_action'] ?? '';
@@ -35,9 +27,14 @@ function httpGet($url, $token) {
     ]);
     $response = curl_exec($ch);
     $error = curl_error($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-    return $error ? false : $response;
+    if ($error) return ['error' => $error];
+    if ($httpCode >= 400) return ['error' => 'HTTP ' . $httpCode];
+    return ['data' => $response];
 }
+
+$result = null;
 
 switch ($action) {
     case 'test_connection':
@@ -45,11 +42,15 @@ switch ($action) {
             ? $api . '/api/v2/user/profile'
             : $api . '/api/v1/profile';
 
-        $response = httpGet($url, $token);
-        $data = json_decode($response, true);
+        $resp = httpGet($url, $token);
+        if (isset($resp['error'])) {
+            echo json_encode(['success' => false, 'message' => '请求失败: ' . $resp['error']]);
+            exit;
+        }
 
+        $data = json_decode($resp['data'], true);
         if (!$data) {
-            echo json_encode(['success' => false, 'message' => '连接失败，请检查网址和Token']);
+            echo json_encode(['success' => false, 'message' => 'API返回无效JSON']);
             exit;
         }
 
@@ -70,9 +71,13 @@ switch ($action) {
 
     case 'get_strategies':
         $url = $api . '/api/v1/strategies';
-        $response = httpGet($url, $token);
-        $data = json_decode($response, true);
+        $resp = httpGet($url, $token);
+        if (isset($resp['error'])) {
+            echo json_encode(['success' => false, 'message' => '请求失败: ' . $resp['error']]);
+            exit;
+        }
 
+        $data = json_decode($resp['data'], true);
         if ($data && isset($data['status']) && $data['status']) {
             $list = [];
             foreach (($data['data']['strategies'] ?? []) as $s) {
@@ -87,9 +92,13 @@ switch ($action) {
 
     case 'get_albums':
         $url = $api . '/api/v1/albums';
-        $response = httpGet($url, $token);
-        $data = json_decode($response, true);
+        $resp = httpGet($url, $token);
+        if (isset($resp['error'])) {
+            echo json_encode(['success' => false, 'message' => '请求失败: ' . $resp['error']]);
+            exit;
+        }
 
+        $data = json_decode($resp['data'], true);
         if ($data && isset($data['status']) && $data['status']) {
             $list = [];
             foreach (($data['data']['data'] ?? []) as $a) {
@@ -103,4 +112,4 @@ switch ($action) {
         exit;
 }
 
-echo json_encode(['success' => false, 'message' => '未知操作']);
+echo json_encode(['success' => false, 'message' => '未知操作: ' . $action]);
