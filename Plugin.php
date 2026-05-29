@@ -71,14 +71,14 @@ class Plugin implements PluginInterface
         $form->addInput($permission);
 
         // 存储策略 - Select下拉，连接成功后自动填充
-        $strategyId = new Select('strategy_id', [], '', '存储策略',
-            '<span id="lskypro-strategy-hint">请先测试连接，成功后自动加载可选策略</span>'
+        $strategyId = new Select('strategy_id', ['' => '请先测试连接'], '', '存储策略',
+            '<span id="lskypro-strategy-hint">测试连接成功后自动加载可选策略</span>'
         );
         $form->addInput($strategyId);
 
         // 相册 - Select下拉，连接成功后自动填充
-        $albumId = new Select('album_id', [], '', '相册',
-            '<span id="lskypro-album-hint">请先测试连接，成功后自动加载可选相册</span>'
+        $albumId = new Select('album_id', ['' => '请先测试连接'], '', '相册',
+            '<span id="lskypro-album-hint">测试连接成功后自动加载可选相册</span>'
         );
         $form->addInput($albumId);
 
