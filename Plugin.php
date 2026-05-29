@@ -5,7 +5,6 @@ use Typecho\Plugin\PluginInterface;
 use Typecho\Widget\Helper\Form;
 use Typecho\Widget\Helper\Form\Element\Text;
 use Typecho\Widget\Helper\Form\Element\Select;
-use Typecho\Widget\Helper\Form\Element\Hidden;
 use Typecho\Common;
 use Widget\Options;
 
@@ -81,15 +80,7 @@ class Plugin implements PluginInterface
         $maxSize = new Text('max_size', NULL, '10', '最大上传大小(MB)');
         $form->addInput($maxSize);
 
-        // 自定义面板（测试连接+列表加载）
-        $panel = new Hidden('panel');
-        $panel->value('lskypro');
-        $form->addItem($panel);
-
         // 输出自定义HTML（测试连接+策略/相册列表+关于）
-        $options = Options::alloc()->plugin('LskyPro');
-        $currentStrategyId = $options->strategy_id ?? '';
-        $currentAlbumId = $options->album_id ?? '';
         ?>
         <style>
             .lskypro-section { background: #fff; padding: 15px 20px; margin: 15px 0; border: 1px solid #ddd; border-radius: 4px; }
