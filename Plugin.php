@@ -213,9 +213,11 @@ HTML;
             return false;
         }
 
-        // 确保是绝对URL（防止Typecho拼接站点URL）
-        if (!preg_match('#^https?://#i', $imageUrl)) {
-            $imageUrl = rtrim($api, '/') . '/' . ltrim($imageUrl, '/');
+        // 返回protocol-relative URL（//img.laozhang.org/...），防止Typecho拼接站点URL
+        if (preg_match('#^https?://#i', $imageUrl)) {
+            $imageUrl = '//' . preg_replace('#^https?://#i', '', $imageUrl);
+        } elseif (!preg_match('#^//#', $imageUrl)) {
+            $imageUrl = '//' . rtrim($api, '/') . '/' . ltrim($imageUrl, '/');
         }
 
         return [
