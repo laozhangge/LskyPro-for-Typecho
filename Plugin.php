@@ -21,8 +21,7 @@ class Plugin implements PluginInterface
     public static function activate()
     {
         \Typecho\Plugin::factory('Widget_Upload')->uploadHandle = __CLASS__ . '::uploadHandle';
-        \Typecho\Plugin::factory('admin/write-post.php')->bottom = __CLASS__ . '::injectScript';
-        \Typecho\Plugin::factory('admin/write-page.php')->bottom = __CLASS__ . '::injectScript';
+        \Typecho\Plugin::factory('Widget_Upload')->attachmentHandle = __CLASS__ . '::attachmentHandle';
     }
 
     public static function deactivate()
@@ -125,70 +124,21 @@ HTML;
     }
 
     /**
-     * 注入编辑器脚本 - 修正Typecho拼接的URL
+     * 附件URL处理 - 直接返回存储的完整URL，绕过Typecho的Common::url拼接
+     * 参考: yeyinghai/Lsky-Upload-pro
      */
-    public static function injectScript()
+    public static function attachmentHandle(array $content): string
     {
-        $opts = Options::alloc()->plugin('LskyPro');
-        $api = rtrim($opts->api ?? '', '/');
-        if (empty($api)) return;
-        $siteUrl = rtrim(Options::alloc()->siteUrl, '/');
-        $apiHost = parse_url($api, PHP_URL_HOST);
+        $path = $content['attachment']->path ?? '';
+        if (empty($path)) return '';
 
-        echo '<script>
-        (function(){
-            var siteUrl="' . $siteUrl . '";
-            var apiHost="' . $apiHost . '";
-            // 修正Typecho Common::url拼接的URL
-            // 情况1: https://zhangbo.net/https://img.laozhang.org/... → https://img.laozhang.org/...
-            // 情况2: https://zhangbo.net//img.laozhang.org/... → https://img.laozhang.org/...
-            // 情况3: https://zhangbo.net/img.laozhang.org/... → https://img.laozhang.org/...
-            function fixUrl(url){
-                if(!url||url.indexOf(siteUrl)!==0)return url;
-                var after=url.substr(siteUrl.length);
-                // siteUrl + "/https://..." → 直接取https://之后的部分
-                if(after.indexOf("/https://")===0)return after.substr(1);
-                if(after.indexOf("/http://")===0)return after.substr(1);
-                // siteUrl + "//" + apiHost → https:// + apiHost之后
-                if(after.indexOf("//"+apiHost)===0)return "https://"+after.substr(2);
-                // siteUrl + "/" + apiHost → https:// + apiHost
-                if(after.indexOf("/"+apiHost)===0)return "https://"+after.substr(1);
-                return url;
-            }
-            function fixAll(){
-                var ta=document.querySelector("textarea");
-                if(!ta)return false;
-                var v=ta.value,fixed=v;
-                // 替换所有出现的错误URL（不限于markdown/img标签）
-                fixed=fixed.replace(/https?:\/\/[^\s"\'\)>]+/g,function(m){return fixUrl(m)});
-                if(fixed!==v){
-                    var pos=ta.selectionStart;
-                    ta.value=fixed;
-                    ta.selectionStart=ta.selectionEnd=pos;
-                    return true;
-                }
-                return false;
-            }
-            // 轮询修正
-            var timer=setInterval(function(){fixAll()},300);
-            // 也监听AJAX上传完成事件
-            if(window.XMLHttpRequest){
-                var origOpen=XMLHttpRequest.prototype.open;
-                var origSend=XMLHttpRequest.prototype.send;
-                XMLHttpRequest.prototype.open=function(){this._lskyUrl=arguments[1];return origOpen.apply(this,arguments)};
-                XMLHttpRequest.prototype.send=function(){
-                    var xhr=this;
-                    xhr.addEventListener("load",function(){
-                        if(xhr._lskyUrl&&xhr._lskyUrl.indexOf("do=upload")!==-1){
-                            setTimeout(fixAll,100);
-                            setTimeout(fixAll,500);
-                        }
-                    });
-                    return origSend.apply(this,arguments);
-                };
-            }
-        })();
-        </script>';
+        // 如果是完整的URL（兰空图床返回的），直接返回，不用Common::url拼接
+        if (preg_match('#^https?://#i', $path)) {
+            return $path;
+        }
+
+        // 否则用Typecho默认方式处理
+        return Common::url($path, Options::alloc()->siteUrl);
     }
 
     public static function uploadHandle($file)
