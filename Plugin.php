@@ -4,7 +4,6 @@ namespace TypechoPlugin\LskyPro;
 use Typecho\Plugin\PluginInterface;
 use Typecho\Widget\Helper\Form;
 use Typecho\Widget\Helper\Form\Element\Text;
-use Typecho\Widget\Helper\Form\Element\Select;
 use Widget\Options;
 
 if (!defined('__TYPECHO_ROOT_DIR__')) exit;
@@ -14,25 +13,18 @@ if (!defined('__TYPECHO_ROOT_DIR__')) exit;
  *
  * @package LskyPro
  * @author 老张博客
- * @version 1.4.0
+ * @version 1.4.1
  * @link https://github.com/laozhangge/LskyPro-for-Typecho
  */
 class Plugin implements PluginInterface
 {
-    /**
-     * 激活插件 - 替换Typecho默认上传处理
-     */
     public static function activate()
     {
         \Typecho\Plugin::factory('Widget_Upload')->uploadHandle = __CLASS__ . '::uploadHandle';
     }
 
-    /**
-     * 禁用插件
-     */
     public static function deactivate()
     {
-        $noop = true;
     }
 
     /**
@@ -40,12 +32,13 @@ class Plugin implements PluginInterface
      */
     public static function config(Form $form)
     {
-        // 拦截AJAX请求（测试连接/策略/相册列表）
+        // 拦截AJAX请求
         if (!empty($_POST['__lskypro_action'])) {
             self::handleAjax();
         }
 
-        // 基本设置
+        // === 全部使用 Text 输入框 ===
+
         $api = new Text('api', NULL, '', 'API网址',
             '填写兰空图床域名，包含 http(s)://，不带 / 结尾<br>'
             . '示例：<code>https://pic.laozhang.org</code>'
@@ -58,39 +51,34 @@ class Plugin implements PluginInterface
         );
         $form->addInput($token);
 
-        $apiVersion = new Select('api_version', [
-            'v1' => 'V1 (旧版本)',
-            'v2' => 'V2 (新版本)',
-        ], 'v2', 'API版本', '根据您的兰空图床版本选择');
+        $apiVersion = new Text('api_version', NULL, 'v2', 'API版本',
+            '填写 <code>v1</code> 或 <code>v2</code>，默认 v2'
+        );
         $form->addInput($apiVersion);
 
-        $permission = new Select('permission', [
-            '1' => '公开',
-            '0' => '私有',
-        ], '1', '图片权限');
+        $permission = new Text('permission', NULL, '1', '图片权限',
+            '<code>1</code> 公开，<code>0</code> 私有'
+        );
         $form->addInput($permission);
 
-        // 存储策略 - Select下拉，连接成功后自动填充
-        $strategyId = new Select('strategy_id', ['' => '请先测试连接'], '', '存储策略',
-            '<span id="lskypro-strategy-hint">测试连接成功后自动加载可选策略</span>'
+        $strategyId = new Text('strategy_id', NULL, '', '存储策略ID',
+            '留空使用默认策略。<span id="lskypro-strategy-hint">测试连接后自动显示可选策略</span>'
         );
         $form->addInput($strategyId);
 
-        // 相册 - Select下拉，连接成功后自动填充
-        $albumId = new Select('album_id', ['' => '请先测试连接'], '', '相册',
-            '<span id="lskypro-album-hint">测试连接成功后自动加载可选相册</span>'
+        $albumId = new Text('album_id', NULL, '', '相册ID',
+            '留空不指定相册。<span id="lskypro-album-hint">测试连接后自动显示可选相册</span>'
         );
         $form->addInput($albumId);
 
-        // 高级设置
         $maxSize = new Text('max_size', NULL, '10', '最大上传大小(MB)');
         $form->addInput($maxSize);
 
-        // 获取当前保存的策略和相册值
+        // 获取当前保存的值
         $curStrategy = Options::alloc()->plugin('LskyPro')->strategy_id ?? '';
         $curAlbum = Options::alloc()->plugin('LskyPro')->album_id ?? '';
 
-        // 输出自定义HTML（测试连接+关于）
+        // 输出自定义HTML
         ?>
         <style>
             .lskypro-section { background: #fff; padding: 15px 20px; margin: 15px 0; border: 1px solid #ddd; border-radius: 4px; }
@@ -104,6 +92,10 @@ class Plugin implements PluginInterface
             .lskypro-msg-err { border-color: #dc3232; background: #fdf0f0; }
             .lskypro-about { font-size: 13px; color: #666; }
             .lskypro-about a { color: #0073aa; }
+            .lskypro-list { margin: 8px 0; }
+            .lskypro-item { display: inline-block; margin: 3px; padding: 4px 10px; background: #f0f0f0; border: 1px solid #ddd; border-radius: 3px; font-size: 12px; cursor: pointer; }
+            .lskypro-item:hover { background: #0073aa; color: #fff; border-color: #0073aa; }
+            .lskypro-item.lskypro-item-active { background: #0073aa; color: #fff; border-color: #005a87; }
         </style>
 
         <div class="lskypro-section">
@@ -113,13 +105,23 @@ class Plugin implements PluginInterface
                 <span id="lskypro-test-loading" class="lskypro-loading">正在测试...</span>
             </p>
             <div id="lskypro-test-result" class="lskypro-msg"></div>
-            <p style="font-size:12px;color:#999;">请先填写API网址和Token，再点击测试。测试成功后自动加载存储策略和相册供选择。</p>
+            <p style="font-size:12px;color:#999;">请先填写API网址和Token，再点击测试。测试成功后自动加载存储策略和相册，点击即可填入ID。</p>
+        </div>
+
+        <div class="lskypro-section" id="lskypro-strategies-box" style="display:none;">
+            <h4>可用存储策略 <small style="color:#999;">（点击填入上方输入框）</small></h4>
+            <div id="lskypro-strategies-list" class="lskypro-list"></div>
+        </div>
+
+        <div class="lskypro-section" id="lskypro-albums-box" style="display:none;">
+            <h4>可用相册 <small style="color:#999;">（点击填入上方输入框）</small></h4>
+            <div id="lskypro-albums-list" class="lskypro-list"></div>
         </div>
 
         <div class="lskypro-section">
             <h4>关于</h4>
             <div class="lskypro-about">
-                <p>兰空图床上传 v1.4.0</p>
+                <p>兰空图床上传 v1.4.1</p>
                 <p>作者：<a href="https://laozhang.org" target="_blank">老张博客</a></p>
                 <p>插件主页：<a href="https://github.com/laozhangge/LskyPro-for-Typecho" target="_blank">GitHub</a></p>
                 <p>兰空图床官网：<a href="https://www.lsky.pro/" target="_blank">https://www.lsky.pro/</a></p>
@@ -137,6 +139,12 @@ class Plugin implements PluginInterface
                 return el ? el.value.trim() : '';
             }
 
+            function getInputEl(name) {
+                var el = document.querySelector('[name="config[' + name + ']"]');
+                if (!el) el = document.querySelector('[name="' + name + '"]');
+                return el;
+            }
+
             function showResult(id, ok, msg) {
                 var el = document.getElementById(id);
                 el.style.display = 'block';
@@ -144,29 +152,37 @@ class Plugin implements PluginInterface
                 el.innerHTML = msg;
             }
 
-            // 填充Select下拉
-            function populateSelect(selectEl, items, currentValue, emptyLabel) {
-                selectEl.innerHTML = '';
-                var opt0 = document.createElement('option');
-                opt0.value = '';
-                opt0.textContent = '-- ' + emptyLabel + ' --';
-                selectEl.appendChild(opt0);
+            // 渲染可点击列表
+            function renderList(containerId, boxId, items, targetField, hintId, hintPrefix) {
+                var box = document.getElementById(boxId);
+                var list = document.getElementById(containerId);
+                var inputEl = getInputEl(targetField);
+                box.style.display = 'block';
+                list.innerHTML = '';
                 items.forEach(function(item) {
-                    var opt = document.createElement('option');
-                    opt.value = item.id;
-                    opt.textContent = item.name + ' (ID:' + item.id + ')';
-                    if (String(item.id) === String(currentValue)) {
-                        opt.selected = true;
+                    var span = document.createElement('span');
+                    span.className = 'lskypro-item';
+                    if (inputEl && String(item.id) === String(inputEl.value)) {
+                        span.className += ' lskypro-item-active';
                     }
-                    selectEl.appendChild(opt);
+                    span.textContent = item.name + ' (ID:' + item.id + ')';
+                    span.onclick = function() {
+                        if (inputEl) inputEl.value = item.id;
+                        // 高亮当前选中
+                        var all = list.querySelectorAll('.lskypro-item');
+                        for (var i = 0; i < all.length; i++) all[i].className = 'lskypro-item';
+                        span.className = 'lskypro-item lskypro-item-active';
+                    };
+                    list.appendChild(span);
                 });
+                document.getElementById(hintId).textContent = hintPrefix + '已加载 ' + items.length + ' 个，点击选择';
             }
 
             // 测试连接
             document.getElementById('lskypro-test-btn').onclick = function() {
                 var api = getVal('api');
                 var token = getVal('token');
-                var apiVersion = getVal('api_version');
+                var apiVersion = getVal('api_version') || 'v2';
                 var btn = this;
 
                 if (!api || !token) {
@@ -216,13 +232,8 @@ class Plugin implements PluginInterface
                 xhr.send(fd);
             };
 
-            // 加载策略列表 → 填充Select
+            // 加载策略列表
             function loadStrategies(api, token) {
-                var selEl = document.querySelector('[name="config[strategy_id]"]');
-                if (!selEl) selEl = document.querySelector('[name="strategy_id"]');
-                if (!selEl) return;
-                selEl.innerHTML = '<option>正在加载策略...</option>';
-
                 var fd = new FormData();
                 fd.append('__lskypro_action', 'get_strategies');
                 fd.append('api', api);
@@ -235,29 +246,17 @@ class Plugin implements PluginInterface
                     try {
                         var r = JSON.parse(xhr.responseText);
                         if (r.success && r.strategies && r.strategies.length > 0) {
-                            populateSelect(selEl, r.strategies, currentStrategy, '使用默认策略');
-                            document.getElementById('lskypro-strategy-hint').textContent = '已加载 ' + r.strategies.length + ' 个策略，请选择';
+                            renderList('lskypro-strategies-list', 'lskypro-strategies-box', r.strategies, 'strategy_id', 'lskypro-strategy-hint', '');
                         } else {
-                            selEl.innerHTML = '<option value="">暂无可用策略</option>';
                             document.getElementById('lskypro-strategy-hint').textContent = '未获取到策略列表';
                         }
-                    } catch(e) {
-                        selEl.innerHTML = '<option value="">加载失败</option>';
-                    }
-                };
-                xhr.onerror = function() {
-                    selEl.innerHTML = '<option value="">加载失败</option>';
+                    } catch(e) {}
                 };
                 xhr.send(fd);
             }
 
-            // 加载相册列表 → 填充Select
+            // 加载相册列表
             function loadAlbums(api, token) {
-                var selEl = document.querySelector('[name="config[album_id]"]');
-                if (!selEl) selEl = document.querySelector('[name="album_id"]');
-                if (!selEl) return;
-                selEl.innerHTML = '<option>正在加载相册...</option>';
-
                 var fd = new FormData();
                 fd.append('__lskypro_action', 'get_albums');
                 fd.append('api', api);
@@ -270,18 +269,11 @@ class Plugin implements PluginInterface
                     try {
                         var r = JSON.parse(xhr.responseText);
                         if (r.success && r.albums && r.albums.length > 0) {
-                            populateSelect(selEl, r.albums, currentAlbum, '不指定相册');
-                            document.getElementById('lskypro-album-hint').textContent = '已加载 ' + r.albums.length + ' 个相册，请选择';
+                            renderList('lskypro-albums-list', 'lskypro-albums-box', r.albums, 'album_id', 'lskypro-album-hint', '');
                         } else {
-                            selEl.innerHTML = '<option value="">暂无相册</option>';
                             document.getElementById('lskypro-album-hint').textContent = '未获取到相册列表';
                         }
-                    } catch(e) {
-                        selEl.innerHTML = '<option value="">加载失败</option>';
-                    }
-                };
-                xhr.onerror = function() {
-                    selEl.innerHTML = '<option value="">加载失败</option>';
+                    } catch(e) {}
                 };
                 xhr.send(fd);
             }
@@ -295,11 +287,10 @@ class Plugin implements PluginInterface
      */
     public static function personalConfig(Form $form)
     {
-        // 留空（Typecho要求必须有此方法）
     }
 
     /**
-     * 处理AJAX请求（测试连接/策略/相册）
+     * 处理AJAX请求
      */
     public static function handleAjax()
     {
@@ -310,7 +301,7 @@ class Plugin implements PluginInterface
         $token = trim($_POST['token'] ?? '');
         $apiVersion = trim($_POST['api_version'] ?? 'v2');
 
-        // 关键修复：清空Typecho框架已产生的所有输出缓冲
+        // 清空Typecho输出缓冲
         while (ob_get_level()) {
             ob_end_clean();
         }
@@ -352,7 +343,6 @@ class Plugin implements PluginInterface
                 exit;
 
             case 'get_strategies':
-                // 策略列表始终用V1
                 $url = $api . '/api/v1/strategies';
                 $response = self::httpGet($url, $token);
                 $data = json_decode($response, true);
@@ -370,7 +360,6 @@ class Plugin implements PluginInterface
                 exit;
 
             case 'get_albums':
-                // 相册列表始终用V1
                 $url = $api . '/api/v1/albums';
                 $response = self::httpGet($url, $token);
                 $data = json_decode($response, true);
@@ -393,7 +382,7 @@ class Plugin implements PluginInterface
     }
 
     /**
-     * 替换Typecho默认上传 - 图片上传到兰空图床
+     * 上传处理
      */
     public static function uploadHandle($file)
     {
@@ -406,25 +395,22 @@ class Plugin implements PluginInterface
             return false;
         }
 
-        // 检查文件大小
         $maxSize = intval(Options::alloc()->plugin('LskyPro')->max_size ?? 10);
         $fileSize = $file['size'] ?? 0;
         if ($maxSize > 0 && $fileSize > $maxSize * 1024 * 1024) {
             return false;
         }
 
-        // 图片上传到兰空图床
         if (self::isImage($ext)) {
             $result = self::lskyUpload($file, $ext);
             if ($result) return $result;
         }
 
-        // 非图片或上传失败，回退本地
         return self::localUpload($file, $ext);
     }
 
     /**
-     * 上传图片到兰空图床
+     * 上传到兰空图床
      */
     private static function lskyUpload($file, $ext)
     {
@@ -461,7 +447,6 @@ class Plugin implements PluginInterface
             $permission = $options->permission ?? '1';
             $params['permission'] = $permission;
 
-            // 存储策略
             $strategyId = $options->strategy_id ?? '';
             if (!empty($strategyId)) {
                 if ($apiVersion === 'v2') {
@@ -471,7 +456,6 @@ class Plugin implements PluginInterface
                 }
             }
 
-            // 相册
             $albumId = $options->album_id ?? '';
             if (!empty($albumId)) {
                 $params['album_id'] = intval($albumId);
@@ -517,7 +501,7 @@ class Plugin implements PluginInterface
     }
 
     /**
-     * 回退：本地上传
+     * 本地回退上传
      */
     private static function localUpload($file, $ext)
     {
@@ -550,9 +534,6 @@ class Plugin implements PluginInterface
         ];
     }
 
-    /**
-     * HTTP GET请求
-     */
     private static function httpGet($url, $token)
     {
         $ch = curl_init();
@@ -570,26 +551,17 @@ class Plugin implements PluginInterface
         return $error ? false : $response;
     }
 
-    /**
-     * 获取文件扩展名
-     */
     private static function getExt($filename): string
     {
         $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
         return preg_replace('/[^a-z0-9]/', '', $ext);
     }
 
-    /**
-     * 判断是否为图片
-     */
     private static function isImage($ext): bool
     {
         return in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']);
     }
 
-    /**
-     * 获取MIME类型
-     */
     private static function getMime($ext): string
     {
         $mimes = [
