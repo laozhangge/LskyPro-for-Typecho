@@ -44,7 +44,6 @@ class LskyPro_Ajax
             self::jsonError('请先填写API网址和Tokens');
         }
         
-        // 测试连接
         $url = ($apiVersion === 'v2') ? 
             $domain . '/api/v2/user/profile' : 
             $domain . '/api/' . $apiVersion . '/profile';
@@ -91,7 +90,6 @@ class LskyPro_Ajax
             self::jsonError('请先填写API网址和Tokens');
         }
         
-        // 策略列表API始终使用V1版本
         $url = $domain . '/api/v1/strategies';
         
         $response = self::httpGet($url, array(
@@ -134,7 +132,6 @@ class LskyPro_Ajax
             self::jsonError('请先填写API网址和Tokens');
         }
         
-        // 相册列表API始终使用V1版本
         $url = $domain . '/api/v1/albums';
         
         $response = self::httpGet($url, array(
@@ -215,7 +212,6 @@ class LskyPro_Ajax
     }
 }
 
-// 处理AJAX请求
 if (isset($_POST['action'])) {
     LskyPro_Ajax::handle();
 }
