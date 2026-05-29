@@ -5,8 +5,6 @@ use Typecho\Plugin\PluginInterface;
 use Typecho\Widget\Helper\Form;
 use Typecho\Widget\Helper\Form\Element\Text;
 use Typecho\Widget\Helper\Form\Element\Select;
-use Typecho\Widget\Helper\Form\Element\Hidden;
-use Typecho\Common;
 use Widget\Options;
 
 if (!defined('__TYPECHO_ROOT_DIR__')) exit;
@@ -173,6 +171,7 @@ class Plugin implements PluginInterface
 
                 var xhr = new XMLHttpRequest();
                 xhr.open('POST', window.location.href, true);
+                xhr.timeout = 15000;
                 xhr.onload = function() {
                     document.getElementById('lskypro-test-loading').style.display = 'none';
                     btn.disabled = false;
@@ -210,6 +209,7 @@ class Plugin implements PluginInterface
 
                 var xhr = new XMLHttpRequest();
                 xhr.open('POST', window.location.href, true);
+                xhr.timeout = 15000;
                 xhr.onload = function() {
                     try {
                         var r = JSON.parse(xhr.responseText);
@@ -239,6 +239,7 @@ class Plugin implements PluginInterface
 
                 var xhr = new XMLHttpRequest();
                 xhr.open('POST', window.location.href, true);
+                xhr.timeout = 15000;
                 xhr.onload = function() {
                     try {
                         var r = JSON.parse(xhr.responseText);
@@ -278,6 +279,13 @@ class Plugin implements PluginInterface
 
         $ext = self::getExt($file['name']);
         if (empty($ext)) {
+            return false;
+        }
+
+        // 检查文件大小
+        $maxSize = intval(Options::alloc()->plugin('LskyPro')->max_size ?? 10);
+        $fileSize = $file['size'] ?? 0;
+        if ($maxSize > 0 && $fileSize > $maxSize * 1024 * 1024) {
             return false;
         }
 
@@ -504,8 +512,9 @@ class Plugin implements PluginInterface
             'Accept: application/json',
         ]);
         $response = curl_exec($ch);
+        $error = curl_error($ch);
         curl_close($ch);
-        return $response;
+        return $error ? false : $response;
     }
 
     /**
