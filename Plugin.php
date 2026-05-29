@@ -1,528 +1,533 @@
 <?php
+namespace TypechoPlugin\LskyPro;
+
+use Typecho\Plugin\PluginInterface;
+use Typecho\Widget\Helper\Form;
+use Typecho\Widget\Helper\Form\Element\Text;
+use Typecho\Widget\Helper\Form\Element\Select;
+use Typecho\Widget\Helper\Form\Element\Hidden;
+use Typecho\Common;
+use Widget\Options;
+
+if (!defined('__TYPECHO_ROOT_DIR__')) exit;
+
 /**
- * 兰空图床上传插件 for Typecho
- * 
- * @package LskyPro for Typecho
+ * 兰空图床上传 - 将编辑器上传的图片存至兰空图床
+ *
+ * @package LskyPro
  * @author 老张博客
  * @version 1.3.6
  * @link https://github.com/laozhangge/LskyPro-for-Typecho
  */
-
-if (!defined('__TYPECHO_ROOT_DIR__')) {
-    exit;
-}
-
-use Typecho\Plugin\PluginInterface;
-use Typecho\Plugin;
-use Typecho\Db;
-use Typecho\Widget;
-use Typecho\Common;
-use Typecho\Widget\Helper\Form;
-
-class LskyPro_Plugin implements PluginInterface
+class Plugin implements PluginInterface
 {
     /**
-     * 插件版本
-     */
-    const VERSION = '1.3.6';
-    
-    /**
-     * 激活插件
+     * 激活插件 - 替换Typecho默认上传处理
      */
     public static function activate()
     {
-        Plugin::factory('admin/write-post.php')->bottom = array('LskyPro_Plugin', 'render');
-        Plugin::factory('admin/write-page.php')->bottom = array('LskyPro_Plugin', 'render');
-        
-        $db = Db::get();
-        $prefix = $db->getPrefix();
-        
-        $db->query("CREATE TABLE IF NOT EXISTS `{$prefix}lskypro_config` (
-            `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
-            `config_key` varchar(50) NOT NULL,
-            `config_value` text,
-            PRIMARY KEY (`id`),
-            UNIQUE KEY `config_key` (`config_key`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-        
-        $defaultConfig = array(
-            'domain' => '',
-            'tokens' => '',
-            'api_version' => 'v2',
-            'permission' => '1',
-            'storage_id' => '',
-            'album_id' => '',
-            'max_size' => '10',
-            'allowed_types' => 'jpg,jpeg,png,gif,webp,bmp'
-        );
-        
-        foreach ($defaultConfig as $key => $value) {
-            $db->query("INSERT IGNORE INTO `{$prefix}lskypro_config` (`config_key`, `config_value`) VALUES (?, ?)", $key, $value);
-        }
-        
-        return _t('兰空图床上传插件已激活');
+        \Typecho\Plugin::factory('Widget_Upload')->uploadHandle = __CLASS__ . '::uploadHandle';
     }
-    
+
     /**
-     * 停用插件
+     * 禁用插件
      */
     public static function deactivate()
     {
-        return _t('兰空图床上传插件已停用');
+        $noop = true;
     }
-    
+
     /**
-     * 获取插件配置
-     */
-    public static function getConfig($key = null)
-    {
-        $db = Db::get();
-        $prefix = $db->getPrefix();
-        
-        if ($key !== null) {
-            $row = $db->fetchRow($db->select('config_value')->from("{$prefix}lskypro_config")->where('config_key = ?', $key));
-            return $row ? $row['config_value'] : '';
-        }
-        
-        $rows = $db->fetchAll($db->select('config_key', 'config_value')->from("{$prefix}lskypro_config"));
-        $config = array();
-        foreach ($rows as $row) {
-            $config[$row['config_key']] = $row['config_value'];
-        }
-        return $config;
-    }
-    
-    /**
-     * 保存插件配置
-     */
-    public static function saveConfig($key, $value)
-    {
-        $db = Db::get();
-        $prefix = $db->getPrefix();
-        
-        $db->query("INSERT INTO `{$prefix}lskypro_config` (`config_key`, `config_value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `config_value` = ?", $key, $value, $value);
-    }
-    
-    /**
-     * 生成插件资源URL
-     */
-    private static function pluginUrl($path)
-    {
-        $options = Widget::widget('Widget_Options');
-        echo $options->pluginUrl . '/LskyPro-Typecho/' . $path;
-    }
-    
-    /**
-     * 插件配置页面
+     * 插件配置面板
      */
     public static function config(Form $form)
     {
-        $config = self::getConfig();
+        // 基本设置
+        $api = new Text('api', NULL, '', 'API网址',
+            '填写兰空图床域名，包含 http(s)://，不带 / 结尾<br>'
+            . '示例：<code>https://pic.laozhang.org</code>'
+        );
+        $form->addInput($api);
+
+        $token = new Text('token', NULL, '', 'API Token',
+            '在兰空图床后台获取的API令牌<br>'
+            . '示例：<code>1|UYsgSjmtTkPjS8qPaLl98dJwdVtU492vQbDFI6pg</code>'
+        );
+        $form->addInput($token);
+
+        $apiVersion = new Select('api_version', [
+            'v1' => 'V1 (旧版本)',
+            'v2' => 'V2 (新版本)',
+        ], 'v2', 'API版本', '根据您的兰空图床版本选择');
+        $form->addInput($apiVersion);
+
+        $permission = new Select('permission', [
+            '1' => '公开',
+            '0' => '私有',
+        ], '1', '图片权限');
+        $form->addInput($permission);
+
+        $strategyId = new Text('strategy_id', NULL, '', '存储策略ID',
+            '留空使用默认策略。<span id="lskypro-strategy-hint"></span>'
+        );
+        $form->addInput($strategyId);
+
+        $albumId = new Text('album_id', NULL, '', '相册ID',
+            '留空不指定相册。<span id="lskypro-album-hint"></span>'
+        );
+        $form->addInput($albumId);
+
+        // 高级设置
+        $maxSize = new Text('max_size', NULL, '10', '最大上传大小(MB)');
+        $form->addInput($maxSize);
+
+        // 自定义面板（测试连接+列表加载）
+        $panel = new Hidden('panel');
+        $panel->value('lskypro');
+        $form->addItem($panel);
+
+        // 输出自定义HTML（测试连接+策略/相册列表+关于）
+        $options = Options::alloc()->plugin('LskyPro');
+        $currentStrategyId = $options->strategy_id ?? '';
+        $currentAlbumId = $options->album_id ?? '';
         ?>
         <style>
-            .lskypro-settings { max-width: 800px; }
-            .lskypro-settings h3 { margin: 20px 0 10px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
-            .lskypro-settings table { width: 100%; }
-            .lskypro-settings td { padding: 8px 0; vertical-align: top; }
-            .lskypro-settings td:first-child { width: 180px; font-weight: bold; }
-            .lskypro-settings input[type="text"], 
-            .lskypro-settings input[type="url"], 
-            .lskypro-settings input[type="number"],
-            .lskypro-settings select { width: 300px; padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; }
-            .lskypro-settings .description { color: #666; font-size: 12px; margin-top: 5px; }
-            .lskypro-settings .button { padding: 8px 16px; background: #0073aa; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
-            .lskypro-settings .button:hover { background: #005a87; }
-            .lskypro-settings .button:disabled { background: #ccc; cursor: not-allowed; }
-            .lskypro-settings .notice { padding: 10px 15px; margin: 10px 0; border-left: 4px solid; }
-            .lskypro-settings .notice-success { border-color: #46b450; background: #f0f8f0; }
-            .lskypro-settings .notice-error { border-color: #dc3232; background: #fdf0f0; }
-            .lskypro-loading { display: none; margin-left: 10px; color: #666; }
-            .lskypro-result-input { width: 100%; padding: 5px; margin: 5px 0; cursor: pointer; }
+            .lskypro-section { background: #fff; padding: 15px 20px; margin: 15px 0; border: 1px solid #ddd; border-radius: 4px; }
+            .lskypro-section h4 { margin: 0 0 10px; padding-bottom: 8px; border-bottom: 1px solid #eee; }
+            .lskypro-btn { display: inline-block; padding: 6px 16px; background: #0073aa; color: #fff; border: none; border-radius: 3px; cursor: pointer; font-size: 13px; }
+            .lskypro-btn:hover { background: #005a87; }
+            .lskypro-btn:disabled { background: #ccc; cursor: not-allowed; }
+            .lskypro-loading { display: none; margin-left: 8px; color: #666; font-size: 12px; }
+            .lskypro-msg { padding: 8px 12px; margin: 8px 0; border-left: 4px solid; font-size: 13px; display: none; }
+            .lskypro-msg-ok { border-color: #46b450; background: #f0f8f0; }
+            .lskypro-msg-err { border-color: #dc3232; background: #fdf0f0; }
+            .lskypro-list { margin: 5px 0; }
+            .lskypro-list-item { display: inline-block; margin: 2px 5px 2px 0; padding: 3px 8px; background: #f0f0f0; border-radius: 3px; font-size: 12px; }
+            .lskypro-about { font-size: 13px; color: #666; }
+            .lskypro-about a { color: #0073aa; }
         </style>
-        
-        <div class="lskypro-settings">
-            <h3>基本设置</h3>
-            <table>
-                <tr>
-                    <td>API网址</td>
-                    <td>
-                        <input type="url" name="domain" id="lskypro-domain" value="<?php echo htmlspecialchars($config['domain']); ?>" placeholder="https://your-lsky.com" />
-                        <p class="description">填写兰空图床的域名，必须带有http://或https://</p>
-                    </td>
-                </tr>
-                <tr>
-                    <td>API Tokens</td>
-                    <td>
-                        <input type="text" name="tokens" id="lskypro-tokens" value="<?php echo htmlspecialchars($config['tokens']); ?>" placeholder="1|xxxxx..." />
-                        <p class="description">在兰空图床后台获取的API令牌</p>
-                    </td>
-                </tr>
-                <tr>
-                    <td>API版本</td>
-                    <td>
-                        <select name="api_version" id="lskypro-api-version">
-                            <option value="v1" <?php if ($config['api_version'] === 'v1') echo 'selected'; ?>>V1 (旧版本)</option>
-                            <option value="v2" <?php if ($config['api_version'] === 'v2') echo 'selected'; ?>>V2 (新版本)</option>
-                        </select>
-                        <p class="description">根据您的兰空图床版本选择</p>
-                    </td>
-                </tr>
-                <tr>
-                    <td>图片权限</td>
-                    <td>
-                        <select name="permission">
-                            <option value="1" <?php if ($config['permission'] === '1') echo 'selected'; ?>>公开</option>
-                            <option value="0" <?php if ($config['permission'] === '0') echo 'selected'; ?>>私有</option>
-                        </select>
-                    </td>
-                </tr>
-                <tr>
-                    <td>存储策略</td>
-                    <td>
-                        <select name="storage_id" id="lskypro-storage-id">
-                            <option value="">请先测试连接</option>
-                        </select>
-                        <button type="button" id="lskypro-load-strategies" class="button" disabled>刷新列表</button>
-                        <span id="lskypro-strategies-loading" class="lskypro-loading">加载中...</span>
-                        <p class="description">测试连接后自动加载</p>
-                    </td>
-                </tr>
-                <tr>
-                    <td>上传相册</td>
-                    <td>
-                        <select name="album_id" id="lskypro-album-id">
-                            <option value="">不指定相册</option>
-                        </select>
-                        <button type="button" id="lskypro-load-albums" class="button" disabled>刷新列表</button>
-                        <span id="lskypro-albums-loading" class="lskypro-loading">加载中...</span>
-                        <p class="description">测试连接后自动加载</p>
-                    </td>
-                </tr>
-                <tr>
-                    <td>测试连接</td>
-                    <td>
-                        <button type="button" id="lskypro-test-connection" class="button">测试连接</button>
-                        <span id="lskypro-test-loading" class="lskypro-loading">正在测试...</span>
-                        <div id="lskypro-connection-result" style="display:none;"></div>
-                    </td>
-                </tr>
-            </table>
-            
-            <h3>高级设置</h3>
-            <table>
-                <tr>
-                    <td>最大上传大小(MB)</td>
-                    <td>
-                        <input type="number" name="max_size" value="<?php echo intval($config['max_size']); ?>" min="1" max="100" />
-                    </td>
-                </tr>
-                <tr>
-                    <td>允许的图片类型</td>
-                    <td>
-                        <input type="text" name="allowed_types" value="<?php echo htmlspecialchars($config['allowed_types']); ?>" />
-                        <p class="description">用逗号分隔，如：jpg,jpeg,png,gif,webp</p>
-                    </td>
-                </tr>
-            </table>
-            
-            <h3>关于</h3>
-            <p>兰空图床上传 v<?php echo self::VERSION; ?></p>
-            <p>作者：<a href="https://laozhang.org" target="_blank">老张博客</a></p>
-            <p>插件主页：<a href="https://github.com/laozhangge/LskyPro-for-Typecho" target="_blank">GitHub</a></p>
-            <p>兰空图床官网：<a href="https://www.lsky.pro/" target="_blank">https://www.lsky.pro/</a></p>
+
+        <div class="lskypro-section">
+            <h4>测试连接</h4>
+            <p>
+                <button type="button" id="lskypro-test-btn" class="lskypro-btn">测试连接</button>
+                <span id="lskypro-test-loading" class="lskypro-loading">正在测试...</span>
+            </p>
+            <div id="lskypro-test-result" class="lskypro-msg"></div>
+            <p style="font-size:12px;color:#999;">请先填写API网址和Token，再点击测试。测试成功后自动加载存储策略和相册列表。</p>
         </div>
-        
+
+        <div class="lskypro-section" id="lskypro-strategies-section" style="display:none;">
+            <h4>可用存储策略</h4>
+            <div id="lskypro-strategies-list" class="lskypro-list"></div>
+            <p style="font-size:12px;color:#999;">将上方显示的策略ID填入"存储策略ID"输入框</p>
+        </div>
+
+        <div class="lskypro-section" id="lskypro-albums-section" style="display:none;">
+            <h4>可用相册</h4>
+            <div id="lskypro-albums-list" class="lskypro-list"></div>
+            <p style="font-size:12px;color:#999;">将上方显示的相册ID填入"相册ID"输入框</p>
+        </div>
+
+        <div class="lskypro-section">
+            <h4>关于</h4>
+            <div class="lskypro-about">
+                <p>兰空图床上传 v1.3.6</p>
+                <p>作者：<a href="https://laozhang.org" target="_blank">老张博客</a></p>
+                <p>插件主页：<a href="https://github.com/laozhangge/LskyPro-for-Typecho" target="_blank">GitHub</a></p>
+                <p>兰空图床官网：<a href="https://www.lsky.pro/" target="_blank">https://www.lsky.pro/</a></p>
+            </div>
+        </div>
+
         <script>
         (function() {
-            var ajaxUrl = '<?php echo Common::url("extending.php?panel=LskyPro_Plugin%2Fajax.php", $options->adminUrl); ?>';
-            var currentStorageId = '<?php echo $config['storage_id']; ?>';
-            var currentAlbumId = '<?php echo $config['album_id']; ?>';
-            
-            document.getElementById('lskypro-test-connection').onclick = function() {
-                var domain = document.getElementById('lskypro-domain').value;
-                var tokens = document.getElementById('lskypro-tokens').value;
-                var apiVersion = document.getElementById('lskypro-api-version').value;
-                var resultBox = document.getElementById('lskypro-connection-result');
-                
-                if (!domain || !tokens) {
-                    resultBox.className = 'notice notice-error';
-                    resultBox.innerHTML = '<p><strong>错误：</strong>请先填写API网址和Tokens</p>';
-                    resultBox.style.display = 'block';
+            function getVal(name) {
+                var el = document.querySelector('[name="' + name + '"]');
+                return el ? el.value.trim() : '';
+            }
+
+            function showResult(id, ok, msg) {
+                var el = document.getElementById(id);
+                el.style.display = 'block';
+                el.className = 'lskypro-msg ' + (ok ? 'lskypro-msg-ok' : 'lskypro-msg-err');
+                el.innerHTML = msg;
+            }
+
+            // 测试连接
+            document.getElementById('lskypro-test-btn').onclick = function() {
+                var api = getVal('api');
+                var token = getVal('token');
+                var apiVersion = getVal('api_version');
+                var btn = this;
+
+                if (!api || !token) {
+                    showResult('lskypro-test-result', false, '请先填写API网址和Token');
                     return;
                 }
-                
+
+                btn.disabled = true;
                 document.getElementById('lskypro-test-loading').style.display = 'inline';
-                this.disabled = true;
-                resultBox.style.display = 'none';
-                
+
+                var fd = new FormData();
+                fd.append('__lskypro_action', 'test_connection');
+                fd.append('api', api);
+                fd.append('token', token);
+                fd.append('api_version', apiVersion);
+
                 var xhr = new XMLHttpRequest();
-                xhr.open('POST', ajaxUrl, true);
-                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+                xhr.open('POST', window.location.href, true);
                 xhr.onload = function() {
-                    if (xhr.status === 200) {
-                        var data = JSON.parse(xhr.responseText);
-                        if (data.success) {
-                            resultBox.className = 'notice notice-success';
-                            resultBox.innerHTML = '<p><strong>成功：</strong>' + data.message + '</p>';
-                            resultBox.style.display = 'block';
+                    document.getElementById('lskypro-test-loading').style.display = 'none';
+                    btn.disabled = false;
+                    try {
+                        var r = JSON.parse(xhr.responseText);
+                        if (r.success) {
+                            showResult('lskypro-test-result', true, '✅ 连接成功！欢迎 ' + r.name);
                             loadStrategies();
                             loadAlbums();
                         } else {
-                            resultBox.className = 'notice notice-error';
-                            resultBox.innerHTML = '<p><strong>错误：</strong>' + data.message + '</p>';
-                            resultBox.style.display = 'block';
+                            showResult('lskypro-test-result', false, '❌ ' + (r.message || '连接失败'));
                         }
+                    } catch(e) {
+                        showResult('lskypro-test-result', false, '❌ 响应格式错误');
                     }
+                };
+                xhr.onerror = function() {
                     document.getElementById('lskypro-test-loading').style.display = 'none';
-                    document.getElementById('lskypro-test-connection').disabled = false;
+                    btn.disabled = false;
+                    showResult('lskypro-test-result', false, '❌ 网络错误');
                 };
-                xhr.send('action=test_connection&domain=' + encodeURIComponent(domain) + '&tokens=' + encodeURIComponent(tokens) + '&api_version=' + encodeURIComponent(apiVersion));
+                xhr.send(fd);
             };
-            
+
+            // 加载策略列表
             function loadStrategies() {
-                var domain = document.getElementById('lskypro-domain').value;
-                var tokens = document.getElementById('lskypro-tokens').value;
-                if (!domain || !tokens) return;
-                
-                document.getElementById('lskypro-strategies-loading').style.display = 'inline';
-                document.getElementById('lskypro-load-strategies').disabled = true;
-                
+                var api = getVal('api');
+                var token = getVal('token');
+                if (!api || !token) return;
+
+                var fd = new FormData();
+                fd.append('__lskypro_action', 'get_strategies');
+                fd.append('api', api);
+                fd.append('token', token);
+
                 var xhr = new XMLHttpRequest();
-                xhr.open('POST', ajaxUrl, true);
-                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+                xhr.open('POST', window.location.href, true);
                 xhr.onload = function() {
-                    if (xhr.status === 200) {
-                        var data = JSON.parse(xhr.responseText);
-                        var select = document.getElementById('lskypro-storage-id');
-                        select.innerHTML = '<option value="">请选择存储策略</option>';
-                        if (data.success && data.strategies) {
-                            data.strategies.forEach(function(item) {
-                                var option = document.createElement('option');
-                                option.value = item.id;
-                                option.textContent = item.name;
-                                if (item.id == currentStorageId) option.selected = true;
-                                select.appendChild(option);
+                    try {
+                        var r = JSON.parse(xhr.responseText);
+                        if (r.success && r.strategies) {
+                            var html = '';
+                            r.strategies.forEach(function(s) {
+                                html += '<span class="lskypro-list-item">ID:' + s.id + ' ' + s.name + '</span>';
                             });
-                            document.getElementById('lskypro-load-strategies').disabled = false;
+                            document.getElementById('lskypro-strategies-list').innerHTML = html;
+                            document.getElementById('lskypro-strategies-section').style.display = 'block';
                         }
-                    }
-                    document.getElementById('lskypro-strategies-loading').style.display = 'none';
+                    } catch(e) {}
                 };
-                xhr.send('action=get_strategies&domain=' + encodeURIComponent(domain) + '&tokens=' + encodeURIComponent(tokens));
+                xhr.send(fd);
             }
-            
+
+            // 加载相册列表
             function loadAlbums() {
-                var domain = document.getElementById('lskypro-domain').value;
-                var tokens = document.getElementById('lskypro-tokens').value;
-                if (!domain || !tokens) return;
-                
-                document.getElementById('lskypro-albums-loading').style.display = 'inline';
-                document.getElementById('lskypro-load-albums').disabled = true;
-                
+                var api = getVal('api');
+                var token = getVal('token');
+                if (!api || !token) return;
+
+                var fd = new FormData();
+                fd.append('__lskypro_action', 'get_albums');
+                fd.append('api', api);
+                fd.append('token', token);
+
                 var xhr = new XMLHttpRequest();
-                xhr.open('POST', ajaxUrl, true);
-                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+                xhr.open('POST', window.location.href, true);
                 xhr.onload = function() {
-                    if (xhr.status === 200) {
-                        var data = JSON.parse(xhr.responseText);
-                        var select = document.getElementById('lskypro-album-id');
-                        select.innerHTML = '<option value="">不指定相册</option>';
-                        if (data.success && data.albums) {
-                            data.albums.forEach(function(item) {
-                                var option = document.createElement('option');
-                                option.value = item.id;
-                                option.textContent = item.name;
-                                if (item.id == currentAlbumId) option.selected = true;
-                                select.appendChild(option);
+                    try {
+                        var r = JSON.parse(xhr.responseText);
+                        if (r.success && r.albums) {
+                            var html = '';
+                            r.albums.forEach(function(a) {
+                                html += '<span class="lskypro-list-item">ID:' + a.id + ' ' + a.name + '</span>';
                             });
-                            document.getElementById('lskypro-load-albums').disabled = false;
+                            document.getElementById('lskypro-albums-list').innerHTML = html;
+                            document.getElementById('lskypro-albums-section').style.display = 'block';
                         }
-                    }
-                    document.getElementById('lskypro-albums-loading').style.display = 'none';
+                    } catch(e) {}
                 };
-                xhr.send('action=get_albums&domain=' + encodeURIComponent(domain) + '&tokens=' + encodeURIComponent(tokens));
-            }
-            
-            document.getElementById('lskypro-load-strategies').onclick = loadStrategies;
-            document.getElementById('lskypro-load-albums').onclick = loadAlbums;
-            
-            var domain = document.getElementById('lskypro-domain').value;
-            var tokens = document.getElementById('lskypro-tokens').value;
-            if (domain && tokens) {
-                loadStrategies();
-                loadAlbums();
+                xhr.send(fd);
             }
         })();
         </script>
         <?php
     }
-    
+
     /**
-     * 个人配置页面
+     * 个人配置
      */
     public static function personalConfig(Form $form)
     {
-        // 个人配置
-        $form->addInput(new \Typecho\Widget\Helper\Form\Element\Hidden('personal'));
+        $form->addInput(new Hidden('personal'));
     }
-    
+
     /**
-     * 渲染编辑器上传界面
+     * 替换Typecho默认上传 - 图片上传到兰空图床
      */
-    public static function render()
+    public static function uploadHandle($file)
     {
-        $config = self::getConfig();
-        
-        if (empty($config['domain']) || empty($config['tokens'])) {
-            return;
+        if (empty($file['name'])) {
+            return false;
         }
-        
-        ?>
-        <link rel="stylesheet" href="<?php self::pluginUrl('css/style.css'); ?>">
-        <script src="<?php self::pluginUrl('js/axios.min.js'); ?>"></script>
-        <script src="<?php self::pluginUrl('js/paste-upload.js'); ?>"></script>
-        <script>
-            var lskyproData = {
-                domain: '<?php echo $config['domain']; ?>',
-                tokens: '<?php echo $config['tokens']; ?>',
-                api_version: '<?php echo $config['api_version']; ?>',
-                permission: '<?php echo $config['permission']; ?>',
-                storage_id: '<?php echo $config['storage_id']; ?>',
-                album_id: '<?php echo $config['album_id']; ?>',
-                max_size: <?php echo intval($config['max_size']); ?>,
-                allowed_types: '<?php echo $config['allowed_types']; ?>'.split(',')
-            };
-        </script>
-        
-        <div class="lskypro-upload-box">
-            <h4>兰空图床上传</h4>
-            <div class="lskypro-upload-area" id="lsky-upload-box">点击此区域上传图片</div>
-            <input type="file" id="lsky-upload-box-input" multiple accept="image/*" style="display:none;" />
-            <div id="lskypro-result"></div>
-            <p class="lskypro-tip">支持的文件类型: <?php echo $config['allowed_types']; ?><br>最大文件大小: <?php echo $config['max_size']; ?>MB<br>支持粘贴上传 (Ctrl+V)</p>
-        </div>
-        
-        <script>
-        (function() {
-            var uploadBox = document.getElementById('lsky-upload-box');
-            var uploadInput = document.getElementById('lsky-upload-box-input');
-            var resultDiv = document.getElementById('lskypro-result');
-            
-            uploadBox.onclick = function() {
-                uploadInput.click();
-            };
-            
-            uploadInput.onchange = function() {
-                handleFileUpload(this.files);
-            };
-            
-            function handleFileUpload(files) {
-                if (!files || files.length === 0) return;
-                
-                for (var i = 0; i < files.length; i++) {
-                    var file = files[i];
-                    
-                    if (lskyproData.allowed_types.length > 0) {
-                        var ext = file.name.split('.').pop().toLowerCase();
-                        if (lskyproData.allowed_types.indexOf(ext) === -1) {
-                            alert('不支持的文件类型: ' + ext);
-                            continue;
-                        }
-                    }
-                    
-                    if (file.size > lskyproData.max_size * 1024 * 1024) {
-                        alert('文件过大，最大支持 ' + lskyproData.max_size + 'MB');
-                        continue;
-                    }
-                    
-                    uploadFile(file);
+
+        $ext = self::getExt($file['name']);
+        if (empty($ext)) {
+            return false;
+        }
+
+        // 图片上传到兰空图床
+        if (self::isImage($ext)) {
+            $result = self::lskyUpload($file, $ext);
+            if ($result) return $result;
+        }
+
+        // 非图片或上传失败，回退本地
+        return self::localUpload($file, $ext);
+    }
+
+    /**
+     * 上传图片到兰空图床
+     */
+    private static function lskyUpload($file, $ext)
+    {
+        try {
+            $options = Options::alloc()->plugin('LskyPro');
+            $api = rtrim($options->api ?? '', '/');
+            $token = $options->token ?? '';
+            $apiVersion = $options->api_version ?: 'v2';
+
+            if (empty($api) || empty($token)) {
+                return false;
+            }
+
+            $tmpFile = $file['tmp_name'] ?? ($file['bytes'] ?? ($file['bits'] ?? ''));
+            if (empty($tmpFile) || !is_readable($tmpFile)) {
+                return false;
+            }
+
+            $url = $api . '/api/' . $apiVersion . '/upload';
+            $params = ['file' => new \CURLFile($tmpFile, mime_content_type($tmpFile), $file['name'])];
+
+            if ($apiVersion === 'v2') {
+                if (!empty($options->strategy_id)) $params['strategy_id'] = $options->strategy_id;
+                if (!empty($options->album_id)) $params['album_id'] = $options->album_id;
+                $params['is_public'] = ($options->permission === '0') ? 0 : 1;
+            } else {
+                if (!empty($options->permission)) $params['permission'] = $options->permission;
+                if (!empty($options->album_id)) $params['album_id'] = $options->album_id;
+            }
+
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'Authorization: Bearer ' . $token,
+                'Accept: application/json',
+            ]);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
+            $response = curl_exec($ch);
+            $error = curl_error($ch);
+            curl_close($ch);
+
+            if ($error || !$response) {
+                return false;
+            }
+
+            $json = json_decode($response, true);
+            if (!$json) return false;
+
+            $imageUrl = '';
+            if ($apiVersion === 'v2') {
+                if (isset($json['status']) && $json['status'] === 'success') {
+                    $imageUrl = $json['data']['public_url'] ?? $json['data']['url'] ?? '';
+                }
+            } else {
+                if (isset($json['status']) && $json['status']) {
+                    $imageUrl = $json['data']['links']['url'] ?? '';
                 }
             }
-            
-            function uploadFile(file) {
-                uploadBox.textContent = '正在上传中...';
-                uploadInput.disabled = true;
-                
-                var formData = new FormData();
-                formData.append('file', file);
-                
-                var apiVersion = lskyproData.api_version;
-                if (apiVersion === 'v2') {
-                    if (lskyproData.storage_id) formData.append('storage_id', lskyproData.storage_id);
-                    if (lskyproData.album_id) formData.append('album_id', lskyproData.album_id);
-                    formData.append('is_public', lskyproData.permission === '1' ? 1 : 0);
+
+            if (empty($imageUrl)) return false;
+
+            return [
+                'name' => $file['name'],
+                'path' => $imageUrl,
+                'size' => $file['size'] ?? filesize($tmpFile),
+                'type' => $ext,
+                'mime' => mime_content_type($tmpFile),
+            ];
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * 本地上传（回退）
+     */
+    private static function localUpload($file, $ext)
+    {
+        $uploadDir = __TYPECHO_ROOT_DIR__ . '/usr/uploads/' . date('Y') . '/' . date('m');
+        if (!is_dir($uploadDir)) {
+            mkdir($uploadDir, 0755, true);
+        }
+
+        $filename = sprintf('%u.%s', crc32(uniqid()), $ext);
+        $path = $uploadDir . '/' . $filename;
+
+        $tmpFile = $file['tmp_name'] ?? ($file['bytes'] ?? ($file['bits'] ?? ''));
+        if (empty($tmpFile)) return false;
+
+        if (!@move_uploaded_file($tmpFile, $path) && !@copy($tmpFile, $path)) {
+            return false;
+        }
+
+        return [
+            'name' => $file['name'],
+            'path' => '/usr/uploads/' . date('Y') . '/' . date('m') . '/' . $filename,
+            'size' => $file['size'] ?? filesize($path),
+            'type' => $ext,
+            'mime' => mime_content_type($path),
+        ];
+    }
+
+    /**
+     * 处理自定义AJAX请求（测试连接/策略/相册）
+     * 在config页面输出前被调用
+     */
+    public static function handleAjax()
+    {
+        if (empty($_POST['__lskypro_action'])) return;
+
+        $action = $_POST['__lskypro_action'];
+        $api = rtrim(trim($_POST['api'] ?? ''), '/');
+        $token = trim($_POST['token'] ?? '');
+        $apiVersion = trim($_POST['api_version'] ?? 'v2');
+
+        header('Content-Type: application/json');
+
+        if (empty($api) || empty($token)) {
+            echo json_encode(['success' => false, 'message' => '请填写API网址和Token']);
+            exit;
+        }
+
+        switch ($action) {
+            case 'test_connection':
+                $url = ($apiVersion === 'v2')
+                    ? $api . '/api/v2/user/profile'
+                    : $api . '/api/' . $apiVersion . '/profile';
+
+                $response = self::httpGet($url, $token);
+                $data = json_decode($response, true);
+
+                if (!$data) {
+                    echo json_encode(['success' => false, 'message' => '连接失败']);
+                    exit;
+                }
+
+                if ($apiVersion === 'v2') {
+                    if (isset($data['status']) && $data['status'] === 'success') {
+                        echo json_encode(['success' => true, 'name' => $data['data']['name'] ?? '用户']);
+                        exit;
+                    }
                 } else {
-                    formData.append('permission', lskyproData.permission);
-                    if (lskyproData.album_id) formData.append('album_id', lskyproData.album_id);
-                }
-                
-                var xhr = new XMLHttpRequest();
-                xhr.open('POST', lskyproData.domain + '/api/' + apiVersion + '/upload', true);
-                xhr.setRequestHeader('Authorization', 'Bearer ' + lskyproData.tokens);
-                xhr.setRequestHeader('Accept', 'application/json');
-                
-                xhr.onload = function() {
-                    if (xhr.status === 200) {
-                        var data = JSON.parse(xhr.responseText);
-                        var url = '';
-                        
-                        if (apiVersion === 'v2') {
-                            if (data.status === 'success') url = data.data.public_url || data.data.url || '';
-                        } else {
-                            if (data.status) url = data.data.links.url;
-                        }
-                        
-                        if (url) {
-                            showResult(url, file.name);
-                        } else {
-                            alert('上传失败: ' + (data.message || '未知错误'));
-                        }
-                    } else {
-                        alert('上传失败: HTTP ' + xhr.status);
-                    }
-                    
-                    uploadBox.textContent = '点击此区域上传图片';
-                    uploadInput.disabled = false;
-                    uploadInput.value = '';
-                };
-                
-                xhr.onerror = function() {
-                    alert('网络错误');
-                    uploadBox.textContent = '点击此区域上传图片';
-                    uploadInput.disabled = false;
-                    uploadInput.value = '';
-                };
-                
-                xhr.send(formData);
-            }
-            
-            function showResult(url, filename) {
-                var html = '<div style="margin:10px 0;padding:10px;background:#f0f8f0;border:1px solid #46b450;border-radius:4px;">';
-                html += '<p><strong>上传成功：</strong>' + filename + '</p>';
-                html += '<p>URL: <input type="text" class="lskypro-result-input" value="' + url + '" onclick="this.select();" readonly /></p>';
-                html += '<p><a href="' + url + '" target="_blank">预览</a></p>';
-                html += '</div>';
-                resultDiv.innerHTML = html + resultDiv.innerHTML;
-            }
-            
-            // 粘贴上传支持
-            document.addEventListener('paste', function(e) {
-                var items = e.clipboardData && e.clipboardData.items;
-                if (!items) return;
-                
-                for (var i = 0; i < items.length; i++) {
-                    if (items[i].type.indexOf('image') !== -1) {
-                        e.preventDefault();
-                        var file = items[i].getAsFile();
-                        if (file) {
-                            uploadFile(file);
-                        }
-                        break;
+                    if (isset($data['status']) && $data['status']) {
+                        echo json_encode(['success' => true, 'name' => $data['data']['name'] ?? '用户']);
+                        exit;
                     }
                 }
-            });
-        })();
-        </script>
-        <?php
+
+                echo json_encode(['success' => false, 'message' => $data['message'] ?? '连接失败']);
+                exit;
+
+            case 'get_strategies':
+                // 策略列表始终用V1
+                $url = $api . '/api/v1/strategies';
+                $response = self::httpGet($url, $token);
+                $data = json_decode($response, true);
+
+                if ($data && isset($data['status']) && $data['status']) {
+                    $list = [];
+                    foreach (($data['data']['strategies'] ?? []) as $s) {
+                        $list[] = ['id' => $s['id'], 'name' => $s['name']];
+                    }
+                    echo json_encode(['success' => true, 'strategies' => $list]);
+                    exit;
+                }
+
+                echo json_encode(['success' => false, 'message' => '获取失败']);
+                exit;
+
+            case 'get_albums':
+                // 相册列表始终用V1
+                $url = $api . '/api/v1/albums';
+                $response = self::httpGet($url, $token);
+                $data = json_decode($response, true);
+
+                if ($data && isset($data['status']) && $data['status']) {
+                    $list = [];
+                    foreach (($data['data']['data'] ?? []) as $a) {
+                        $list[] = ['id' => $a['id'], 'name' => $a['name']];
+                    }
+                    echo json_encode(['success' => true, 'albums' => $list]);
+                    exit;
+                }
+
+                echo json_encode(['success' => false, 'message' => '获取失败']);
+                exit;
+        }
+
+        echo json_encode(['success' => false, 'message' => '未知操作']);
+        exit;
+    }
+
+    /**
+     * HTTP GET请求
+     */
+    private static function httpGet($url, $token)
+    {
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $token,
+            'Accept: application/json',
+        ]);
+        $response = curl_exec($ch);
+        curl_close($ch);
+        return $response;
+    }
+
+    /**
+     * 获取文件扩展名
+     */
+    private static function getExt($filename): string
+    {
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        return preg_replace('/[^a-z0-9]/', '', $ext);
+    }
+
+    /**
+     * 判断是否为图片
+     */
+    private static function isImage($ext): bool
+    {
+        return in_array($ext, ['gif', 'jpg', 'jpeg', 'png', 'tiff', 'bmp', 'ico', 'psd', 'webp']);
     }
 }
+
+// 拦截自定义AJAX请求（在config页面渲染前处理）
+Plugin::handleAjax();
