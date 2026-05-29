@@ -139,52 +139,53 @@ HTML;
         (function(){
             var siteUrl="' . $siteUrl . '";
             var apiHost="' . $apiHost . '";
-            // 修正Typecho拼接的URL：https://zhangbo.net/img.laozhang.org/... → https://img.laozhang.org/...
+            // 修正Typecho Common::url拼接的URL
+            // 情况1: https://zhangbo.net/https://img.laozhang.org/... → https://img.laozhang.org/...
+            // 情况2: https://zhangbo.net//img.laozhang.org/... → https://img.laozhang.org/...
+            // 情况3: https://zhangbo.net/img.laozhang.org/... → https://img.laozhang.org/...
             function fixUrl(url){
-                if(!url)return url;
-                // 检测站点URL+API域名的拼接模式
-                var prefix=siteUrl+"/"+apiHost;
-                if(url.indexOf(prefix)===0){
-                    return "https://"+url.substr(siteUrl.length+1);
-                }
-                // 检测站点URL+https:// 的拼接模式
-                var prefix2=siteUrl+"/https://";
-                if(url.indexOf(prefix2)===0){
-                    return url.substr(siteUrl.length+1);
-                }
-                var prefix3=siteUrl+"/http://";
-                if(url.indexOf(prefix3)===0){
-                    return url.substr(siteUrl.length+1);
-                }
+                if(!url||url.indexOf(siteUrl)!==0)return url;
+                var after=url.substr(siteUrl.length);
+                // siteUrl + "/https://..." → 直接取https://之后的部分
+                if(after.indexOf("/https://")===0)return after.substr(1);
+                if(after.indexOf("/http://")===0)return after.substr(1);
+                // siteUrl + "//" + apiHost → https:// + apiHost之后
+                if(after.indexOf("//"+apiHost)===0)return "https://"+after.substr(2);
+                // siteUrl + "/" + apiHost → https:// + apiHost
+                if(after.indexOf("/"+apiHost)===0)return "https://"+after.substr(1);
                 return url;
             }
-            // 拦截textarea内容变化，修正图片URL
-            function watchTextarea(){
+            function fixAll(){
                 var ta=document.querySelector("textarea");
-                if(!ta)return;
-                var lastVal=ta.value;
-                setInterval(function(){
-                    if(ta.value!==lastVal){
-                        var fixed=ta.value.replace(/(!\[[^\]]*\]\()([^)]+)(\))/g,function(m,pre,url,post){
-                            return pre+fixUrl(url)+post;
-                        });
-                        // 也处理HTML img标签
-                        fixed=fixed.replace(/(<img\s+[^>]*src=["\x27])([^"\x27]+)(["\x27])/g,function(m,pre,url,post){
-                            return pre+fixUrl(url)+post;
-                        });
-                        if(fixed!==ta.value){
-                            var pos=ta.selectionStart;
-                            ta.value=fixed;
-                            ta.selectionStart=ta.selectionEnd=pos;
-                        }
-                        lastVal=ta.value;
-                    }
-                },500);
+                if(!ta)return false;
+                var v=ta.value,fixed=v;
+                // 替换所有出现的错误URL（不限于markdown/img标签）
+                fixed=fixed.replace(/https?:\/\/[^\s"\'\)>]+/g,function(m){return fixUrl(m)});
+                if(fixed!==v){
+                    var pos=ta.selectionStart;
+                    ta.value=fixed;
+                    ta.selectionStart=ta.selectionEnd=pos;
+                    return true;
+                }
+                return false;
             }
-            if(document.readyState==="loading"){
-                document.addEventListener("DOMContentLoaded",watchTextarea);
-            }else{
-                watchTextarea();
+            // 轮询修正
+            var timer=setInterval(function(){fixAll()},300);
+            // 也监听AJAX上传完成事件
+            if(window.XMLHttpRequest){
+                var origOpen=XMLHttpRequest.prototype.open;
+                var origSend=XMLHttpRequest.prototype.send;
+                XMLHttpRequest.prototype.open=function(){this._lskyUrl=arguments[1];return origOpen.apply(this,arguments)};
+                XMLHttpRequest.prototype.send=function(){
+                    var xhr=this;
+                    xhr.addEventListener("load",function(){
+                        if(xhr._lskyUrl&&xhr._lskyUrl.indexOf("do=upload")!==-1){
+                            setTimeout(fixAll,100);
+                            setTimeout(fixAll,500);
+                        }
+                    });
+                    return origSend.apply(this,arguments);
+                };
             }
         })();
         </script>';
@@ -282,11 +283,10 @@ HTML;
             return false;
         }
 
-        // 返回protocol-relative URL（//img.laozhang.org/...），防止Typecho拼接站点URL
-        if (preg_match('#^https?://#i', $imageUrl)) {
-            $imageUrl = '//' . preg_replace('#^https?://#i', '', $imageUrl);
-        } elseif (!preg_match('#^//#', $imageUrl)) {
-            $imageUrl = '//' . rtrim($api, '/') . '/' . ltrim($imageUrl, '/');
+        // 确保返回完整的https:// URL
+        // 如果Common::url拼接了站点URL，injectScript的JS会修正
+        if (!preg_match('#^https?://#i', $imageUrl)) {
+            $imageUrl = rtrim($api, '/') . '/' . ltrim($imageUrl, '/');
         }
 
         return [
