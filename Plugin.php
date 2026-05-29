@@ -68,7 +68,7 @@ class Plugin implements PluginInterface
         echo '<p style="color:#999;font-size:12px">兰空图床上传 v2.0.1 | <a href="https://github.com/laozhangge/LskyPro-for-Typecho" target="_blank">GitHub</a></p>';
 
         // JS
-        $ajaxUrl = \Typecho\Common::url('usr/plugins/LskyPro/ajax.php', \Typecho\Common::url('/'));
+        $ajaxUrl = rtrim(Options::alloc()->siteUrl, '/') . '/usr/plugins/LskyPro/ajax.php';
         echo '<script>
         (function(){
         var AJ="' . htmlspecialchars($ajaxUrl, ENT_QUOTES) . '";
