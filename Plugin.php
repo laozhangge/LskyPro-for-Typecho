@@ -22,6 +22,8 @@ class Plugin implements PluginInterface
     {
         \Typecho\Plugin::factory('Widget_Upload')->uploadHandle = __CLASS__ . '::uploadHandle';
         \Typecho\Plugin::factory('Widget_Upload')->attachmentHandle = __CLASS__ . '::attachmentHandle';
+        \Typecho\Plugin::factory('admin/write-post.php')->bottom = __CLASS__ . '::injectScript';
+        \Typecho\Plugin::factory('admin/write-page.php')->bottom = __CLASS__ . '::injectScript';
     }
 
     public static function deactivate()
@@ -47,6 +49,9 @@ class Plugin implements PluginInterface
 
         $albumId = new Text('album_id', NULL, '', '相册ID：', '<span id="lskypro-alb-hint">留空不指定相册</span>');
         $form->addInput($albumId);
+
+        $format = new Text('format', NULL, 'markdown', '插入格式：', '粘贴上传的插入格式：<code>markdown</code>（默认）、<code>url</code>、<code>html</code>、<code>bbcode</code>');
+        $form->addInput($format);
 
         $maxSize = new Text('max_size', NULL, '10', '最大上传大小(MB)：', '单位MB，默认10');
         $form->addInput($maxSize);
@@ -139,6 +144,37 @@ HTML;
 
         // 否则用Typecho默认方式处理
         return Common::url($path, Options::alloc()->siteUrl);
+    }
+
+    /**
+     * 注入粘贴上传脚本到编辑器页面
+     */
+    public static function injectScript()
+    {
+        $opts = Options::alloc()->plugin('LskyPro');
+        $format = $opts->format ?? 'markdown';
+        $apiUrl = rtrim(Options::alloc()->siteUrl, '/') . '/usr/plugins/LskyPro/ajax.php';
+        echo '<script>window.__lskypro_format="' . htmlspecialchars($format, ENT_QUOTES) . '";window.__lskypro_ajax="' . htmlspecialchars($apiUrl, ENT_QUOTES) . '";</script>' . "\n";
+        echo '<script src="/usr/plugins/LskyPro/assets/paste-upload.js"></script>' . "\n";
+    }
+
+    /**
+     * 根据配置格式化图片插入内容
+     */
+    private static function _formatContent(string $name, string $url): string
+    {
+        $format = Options::alloc()->plugin('LskyPro')->format ?? 'markdown';
+        switch ($format) {
+            case 'url':
+                return $url;
+            case 'html':
+                return '<img src="' . htmlspecialchars($url, ENT_QUOTES) . '" alt="' . htmlspecialchars($name, ENT_QUOTES) . '" />';
+            case 'bbcode':
+                return '[img]' . $url . '[/img]';
+            case 'markdown':
+            default:
+                return '![' . $name . '](' . $url . ')';
+        }
     }
 
     public static function uploadHandle($file)
