@@ -7,14 +7,15 @@ use Typecho\Widget\Helper\Form\Element\Text;
 use Widget\Options;
 
 if (!defined('__TYPECHO_ROOT_DIR__')) exit;
-
 /**
- * 兰空图床上传
+ * 兰空图床上传 - 将编辑器上传的图片存至兰空图床
+ *
  * @package LskyPro
  * @author 老张博客
- * @version 0.0.1
+ * @version 1.1.0
  * @link https://github.com/laozhangge/LskyPro-for-Typecho
  */
+
 class Plugin implements PluginInterface
 {
     public static function activate()
@@ -22,76 +23,202 @@ class Plugin implements PluginInterface
         \Typecho\Plugin::factory('Widget_Upload')->uploadHandle = __CLASS__ . '::uploadHandle';
     }
 
-    public static function deactivate() {}
+    public static function deactivate()
+    {
+    }
 
     public static function config(Form $form)
     {
-        $form->addInput(new Text('api', NULL, '', 'API网址：', '包含 http(s):// 示例：<code>https://pic.laozhang.org</code>'));
-        $form->addInput(new Text('token', NULL, '', 'Token：', '示例：<code>1|xxx</code>'));
-        $form->addInput(new Text('api_version', NULL, 'v2', 'API版本：', 'v1 或 v2'));
-        $form->addInput(new Text('permission', NULL, '1', '权限：', '1=公开 0=私有'));
-        $form->addInput(new Text('strategy_id', NULL, '', '策略ID：', '留空默认'));
-        $form->addInput(new Text('album_id', NULL, '', '相册ID：', '留空不指定'));
-        $form->addInput(new Text('max_size', NULL, '10', '上传限制MB：', '默认10'));
-        $form->addInput(new Text('format', NULL, 'markdown', '插入格式：', 'markdown / url / html / bbcode'));
+        $api = new Text('api', NULL, '', 'API网址：', '填写兰空图床域名，包含 http(s)://，不带 / 结尾。示例：<code>https://pic.laozhang.org</code>');
+        $form->addInput($api);
 
-        // 注入测试连接的JS和AJAX地址
-        $ajaxUrl = rtrim(\Typecho\Common::url('usr/plugins/LskyPro/ajax.php', Options::alloc()->siteUrl), '/');
-        echo '<script>window.__lskyAjaxUrl="' . htmlspecialchars($ajaxUrl, ENT_QUOTES) . '";</script>';
-        echo '<script src="' . \Typecho\Common::url('usr/plugins/LskyPro/js/config.js', Options::alloc()->siteUrl) . '"></script>';
+        $token = new Text('token', NULL, '', 'API Token：', '在兰空图床后台获取的API令牌。示例：<code>1|UYsgSjmtTkPjS8qPaLl98dJwdVtU492vQbDFI6pg</code>');
+        $form->addInput($token);
+
+        $apiVersion = new Text('api_version', NULL, 'v2', 'API版本：', '填写 <code>v1</code> 或 <code>v2</code>，默认 v2');
+        $form->addInput($apiVersion);
+
+        $permission = new Text('permission', NULL, '1', '图片权限：', '<code>1</code> 公开，<code>0</code> 私有');
+        $form->addInput($permission);
+
+        $strategyId = new Text('strategy_id', NULL, '', '存储策略ID：', '<span id="lskypro-str-hint">留空使用默认策略</span>');
+        $form->addInput($strategyId);
+
+        $albumId = new Text('album_id', NULL, '', '相册ID：', '<span id="lskypro-alb-hint">留空不指定相册</span>');
+        $form->addInput($albumId);
+
+        $maxSize = new Text('max_size', NULL, '10', '最大上传大小(MB)：', '单位MB，默认10');
+        $form->addInput($maxSize);
+
+        echo <<<HTML
+<style>
+.lskypro-box{background:#fff;padding:15px 20px;margin:15px 0;border:1px solid #ddd;border-radius:4px}
+.lskypro-box h4{margin:0 0 10px;padding-bottom:8px;border-bottom:1px solid #eee}
+.lskypro-btn{display:inline-block;padding:6px 16px;background:#0073aa;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:13px}
+.lskypro-btn:hover{background:#005a87}
+.lskypro-btn:disabled{background:#ccc;cursor:not-allowed}
+.lskypro-load{display:none;margin-left:8px;color:#666;font-size:12px}
+.lskypro-msg{padding:8px 12px;margin:8px 0;border-left:4px solid;font-size:13px;display:none}
+.lskypro-msg-ok{border-color:#46b450;background:#f0f8f0}
+.lskypro-msg-err{border-color:#dc3232;background:#fdf0f0}
+.lskypro-item{display:inline-block;margin:3px;padding:4px 10px;background:#f0f0f0;border:1px solid #ddd;border-radius:3px;font-size:12px;cursor:pointer}
+.lskypro-item:hover{background:#0073aa;color:#fff;border-color:#0073aa}
+.lskypro-item-active{background:#0073aa;color:#fff;border-color:#005a87}
+</style>
+<div class="lskypro-box">
+<h4>测试连接</h4>
+<p><button type="button" id="lskypro-test-btn" class="lskypro-btn">测试连接</button><span id="lskypro-test-load" class="lskypro-load">正在测试...</span></p>
+<div id="lskypro-test-msg" class="lskypro-msg"></div>
+<p style="font-size:12px;color:#999;">填写API网址和Token后点击测试，成功后自动加载策略和相册列表，点击即可填入ID。</p>
+</div>
+<div class="lskypro-box" id="lskypro-str-box" style="display:none"><h4>可用存储策略 <small style="color:#999;">点击填入上方输入框</small></h4><div id="lskypro-str-list"></div></div>
+<div class="lskypro-box" id="lskypro-alb-box" style="display:none"><h4>可用相册 <small style="color:#999;">点击填入上方输入框</small></h4><div id="lskypro-alb-list"></div></div>
+<p style="color:#999;font-size:12px;">兰空图床上传 v1.1.0 | 作者：<a href="https://laozhang.org" target="_blank">老张博客</a> | <a href="https://github.com/laozhangge/LskyPro-for-Typecho" target="_blank">GitHub</a></p>
+<script>
+(function(){
+var AJ=(function(){var a=document.createElement('a');a.href=window.location.href;return a.protocol+'//'+a.host+'/usr/plugins/LskyPro/ajax.php'})();
+function v(n){var e=document.querySelector('[name="config['+n+']"]');if(!e)e=document.querySelector('[name="'+n+'"]');return e?e.value.trim():''}
+function el(n){var e=document.querySelector('[name="config['+n+']"]');return e||document.querySelector('[name="'+n+'"]')}
+function msg(ok,t){var m=document.getElementById('lskypro-test-msg');m.style.display='block';m.className='lskypro-msg '+(ok?'lskypro-msg-ok':'lskypro-msg-err');m.innerHTML=t}
+function rl(cid,bid,items,fld,hid){
+var b=document.getElementById(bid),c=document.getElementById(cid),inp=el(fld);
+b.style.display='block';c.innerHTML='';
+items.forEach(function(i){
+var s=document.createElement('span');s.className='lskypro-item';
+if(inp&&String(i.id)===String(inp.value))s.className+=' lskypro-item-active';
+s.textContent=i.name+' (ID:'+i.id+')';
+s.onclick=function(){if(inp)inp.value=i.id;var a=c.querySelectorAll('.lskypro-item');for(var j=0;j<a.length;j++)a[j].className='lskypro-item';s.className='lskypro-item lskypro-item-active'};
+c.appendChild(s)});
+document.getElementById(hid).textContent='已加载 '+items.length+' 个，点击选择';
+}
+function xpost(fd,cb){
+var x=new XMLHttpRequest();x.open('POST',AJ,true);x.timeout=15000;
+x.onload=function(){try{cb(null,JSON.parse(x.responseText))}catch(e){cb(e)}};
+x.onerror=function(){cb(new Error('网络错误'))};
+x.ontimeout=function(){cb(new Error('超时'))};x.send(fd);
+}
+document.getElementById('lskypro-test-btn').onclick=function(){
+var api=v('api'),tok=v('token'),ver=v('api_version')||'v2',btn=this;
+if(!api||!tok){msg(false,'请先填写API网址和Token');return}
+btn.disabled=true;document.getElementById('lskypro-test-load').style.display='inline';
+var fd=new FormData();fd.append('__lskypro_action','test_connection');fd.append('api',api);fd.append('token',tok);fd.append('api_version',ver);
+xpost(fd,function(err,r){
+document.getElementById('lskypro-test-load').style.display='none';btn.disabled=false;
+if(err){msg(false,'❌ 响应格式错误');return}
+if(r.success){msg(true,'✅ 连接成功！欢迎 '+r.name);
+var fd2=new FormData();fd2.append('__lskypro_action','get_strategies');fd2.append('api',api);fd2.append('token',tok);
+xpost(fd2,function(e2,r2){if(!e2&&r2.success&&r2.strategies)rl('lskypro-str-list','lskypro-str-box',r2.strategies,'strategy_id','lskypro-str-hint')});
+var fd3=new FormData();fd3.append('__lskypro_action','get_albums');fd3.append('api',api);fd3.append('token',tok);
+xpost(fd3,function(e3,r3){if(!e3&&r3.success&&r3.albums)rl('lskypro-alb-list','lskypro-alb-box',r3.albums,'album_id','lskypro-alb-hint')});
+}else{msg(false,'❌ '+(r.message||'连接失败'))}
+});
+};
+})();
+</script>
+HTML;
     }
 
-    public static function personalConfig(Form $form) {}
+    public static function personalConfig(Form $form)
+    {
+    }
 
     public static function uploadHandle($file)
     {
-        if (empty($file['name'])) return false;
-        $ext = preg_replace('/[^a-z0-9]/', '', strtolower(pathinfo($file['name'], PATHINFO_EXTENSION)));
-        if (empty($ext)) return false;
+        if (empty($file['name'])) {
+            return false;
+        }
 
-        $o = Options::alloc()->plugin('LskyPro');
-        $api = rtrim($o->api ?? '', '/');
-        $token = $o->token ?? '';
-        $ver = $o->api_version ?: 'v2';
-        if (empty($api) || empty($token)) return false;
+        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $ext = preg_replace('/[^a-z0-9]/', '', $ext);
+        if (empty($ext)) {
+            return false;
+        }
 
-        $tmp = $file['tmp_name'] ?? ($file['bytes'] ?? ($file['bits'] ?? ''));
-        if (empty($tmp) || !is_readable($tmp)) return false;
+        $options = Options::alloc()->plugin('LskyPro');
+        $api = rtrim($options->api ?? '', '/');
+        $token = $options->token ?? '';
+        $apiVersion = $options->api_version ?: 'v2';
 
-        $mimes = ['jpg'=>'image/jpeg','jpeg'=>'image/jpeg','png'=>'image/png','gif'=>'image/gif','webp'=>'image/webp','bmp'=>'image/bmp','svg'=>'image/svg+xml'];
-        $params = ['file' => new \CURLFile($tmp, $mimes[$ext] ?? 'application/octet-stream', $file['name'])];
-        $params['permission'] = $o->permission ?? '1';
-        $sid = $o->strategy_id ?? '';
-        if ($sid) $params[$ver === 'v2' ? 'storage_id' : 'strategy_id'] = intval($sid);
-        $aid = $o->album_id ?? '';
-        if ($aid) $params['album_id'] = intval($aid);
+        if (empty($api) || empty($token)) {
+            return false;
+        }
 
-        $ch = curl_init($api . '/api/' . $ver . '/upload');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 30,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token, 'Accept: application/json'],
-            CURLOPT_POSTFIELDS => $params,
+        $tmpFile = $file['tmp_name'] ?? ($file['bytes'] ?? ($file['bits'] ?? ''));
+        if (empty($tmpFile) || !is_readable($tmpFile)) {
+            return false;
+        }
+
+        $url = $api . '/api/' . $apiVersion . '/upload';
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $token,
+            'Accept: application/json',
         ]);
-        $res = curl_exec($ch);
-        $err = curl_error($ch);
-        curl_close($ch);
-        if ($err || !$res) return false;
 
-        $json = json_decode($res, true);
+        $mimes = [
+            'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg',
+            'png' => 'image/png', 'gif' => 'image/gif',
+            'webp' => 'image/webp', 'bmp' => 'image/bmp',
+            'svg' => 'image/svg+xml',
+        ];
+        $mime = $mimes[$ext] ?? 'application/octet-stream';
+
+        $params = ['file' => new \CURLFile($tmpFile, $mime, $file['name'])];
+        $params['permission'] = $options->permission ?? '1';
+
+        $strategyId = $options->strategy_id ?? '';
+        if (!empty($strategyId)) {
+            if ($apiVersion === 'v2') {
+                $params['storage_id'] = intval($strategyId);
+            } else {
+                $params['strategy_id'] = intval($strategyId);
+            }
+        }
+
+        $albumId = $options->album_id ?? '';
+        if (!empty($albumId)) {
+            $params['album_id'] = intval($albumId);
+        }
+
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
+        $response = curl_exec($ch);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        if ($error || !$response) {
+            return false;
+        }
+
+        $json = json_decode($response, true);
         if (!$json) return false;
 
-        $url = '';
-        if ($ver === 'v2') {
-            if (($json['status'] ?? '') === 'success') $url = $json['data']['public_url'] ?? $json['data']['url'] ?? '';
+        $imageUrl = '';
+        if ($apiVersion === 'v2') {
+            if (isset($json['status']) && $json['status'] === 'success') {
+                $imageUrl = $json['data']['public_url'] ?? $json['data']['url'] ?? '';
+            }
         } else {
-            if (!empty($json['status'])) $url = $json['data']['links']['url'] ?? $json['data']['url'] ?? '';
+            if (isset($json['status']) && $json['status']) {
+                $imageUrl = $json['data']['links']['url'] ?? $json['data']['url'] ?? '';
+            }
         }
-        if (empty($url)) return false;
-        if (!preg_match('#^https?://#i', $url)) $url = rtrim($api, '/') . '/' . ltrim($url, '/');
 
-        return ['name' => $file['name'], 'path' => $url, 'size' => $file['size'] ?? 0, 'type' => $ext, 'ext' => $ext];
+        if (empty($imageUrl)) {
+            return false;
+        }
+
+        return [
+            'name' => $file['name'],
+            'path' => $imageUrl,
+            'size' => $file['size'] ?? 0,
+            'type' => $ext,
+            'ext' => $ext,
+        ];
     }
 }
